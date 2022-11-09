@@ -1,9 +1,9 @@
 use super::{NulError, PdCStrInner, PdCStringInner, PdUChar};
 use std::{
-    borrow::{Borrow},
+    borrow::Borrow,
     convert::TryFrom,
     fmt::{self, Debug, Display, Formatter},
-    ops::{Deref},
+    ops::Deref,
     str::FromStr,
 };
 

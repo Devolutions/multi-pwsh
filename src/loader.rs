@@ -1,9 +1,9 @@
+use crate::delegate_loader::AssemblyDelegateLoader;
 use crate::host_detect::pwsh_host_detect;
 use crate::host_exit_code::HostExitCode;
 use crate::hostfxr::load_hostfxr;
 use crate::pdcstr;
 use crate::pdcstring::PdCString;
-use crate::delegate_loader::{AssemblyDelegateLoader};
 
 pub const BINDINGS_DLL: &[u8] = include_bytes!("../dotnet/bin/Release/net6.0/Bindings.dll");
 
@@ -42,7 +42,8 @@ pub fn get_assembly_delegate_loader() -> AssemblyDelegateLoader<PdCString> {
         bytes: *const libc::c_uchar,
         size: libc::c_uint,
     ) -> i32 = unsafe { std::mem::transmute(load_assembly_from_native_memory) };
-    let result = (load_assembly_from_native_memory)(BINDINGS_DLL.as_ptr(), BINDINGS_DLL.len() as u32);
+    let result =
+        (load_assembly_from_native_memory)(BINDINGS_DLL.as_ptr(), BINDINGS_DLL.len() as u32);
     HostExitCode::from(result).into_result().unwrap();
 
     fn_loader
