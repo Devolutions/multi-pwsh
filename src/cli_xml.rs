@@ -2,6 +2,7 @@
 
 use crate::time::parse_iso8601_duration;
 use crate::time::DateTime;
+use decimal::d128;
 use quick_xml::events;
 use quick_xml::events::Event;
 use quick_xml::reader::Reader;
@@ -67,6 +68,23 @@ impl CliTypeName {
             name: name.map(|s| s.to_string()),
             values: value,
             ref_id: ref_id.to_string(),
+        }
+    }
+}
+
+// Null value (<Nil>)
+// Example: <Nil/>
+// https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/402f2a78-5771-45ae-bf33-59f6e57767ca
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct CliNull {
+    pub name: Option<String>,
+}
+
+impl CliNull {
+    pub fn new(name: Option<&str>) -> CliNull {
+        CliNull {
+            name: name.map(|s| s.to_string()),
         }
     }
 }
@@ -431,6 +449,30 @@ impl CliDouble {
     }
 }
 
+// Decimal type (<D>)
+// Example: <D>12.34</D>
+// https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/0f760f90-fa46-49bd-8868-001e2c29eb50
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct CliDecimal {
+    pub value: d128,
+    pub name: Option<String>,
+}
+
+impl CliDecimal {
+    pub fn new(name: Option<&str>, value: d128) -> CliDecimal {
+        CliDecimal {
+            name: name.map(|s| s.to_string()),
+            value: value,
+        }
+    }
+
+    pub fn new_from_str(name: Option<&str>, value: &str) -> Option<CliDecimal> {
+        let value = value.parse::<d128>().ok()?;
+        Some(Self::new(name, value))
+    }
+}
+
 // Array of Bytes type (<AB>)
 // Example: <BA>AQIDBA==</BA>
 // https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/489ed886-34d2-4306-a2f5-73843c219b14
@@ -582,8 +624,8 @@ impl CliScriptBlock {
 
 #[derive(Debug, Clone)]
 pub enum CliValue {
-    Null,
     CliObject(CliObject),
+    CliNull(CliNull),
     CliString(CliString),
     CliChar(CliChar),
     CliBool(CliBool),
@@ -599,6 +641,7 @@ pub enum CliValue {
     CliInt64(CliInt64),
     CliFloat(CliFloat),
     CliDouble(CliDouble),
+    CliDecimal(CliDecimal),
     CliBuffer(CliBuffer),
     CliGuid(CliGuid),
     CliUri(CliUri),
@@ -611,6 +654,7 @@ impl CliValue {
     pub fn get_name(&self) -> Option<&str> {
         match &*self {
             CliValue::CliObject(prop) => prop.name.as_deref(),
+            CliValue::CliNull(prop) => prop.name.as_deref(),
             CliValue::CliString(prop) => prop.name.as_deref(),
             CliValue::CliChar(prop) => prop.name.as_deref(),
             CliValue::CliBool(prop) => prop.name.as_deref(),
@@ -626,19 +670,19 @@ impl CliValue {
             CliValue::CliInt64(prop) => prop.name.as_deref(),
             CliValue::CliFloat(prop) => prop.name.as_deref(),
             CliValue::CliDouble(prop) => prop.name.as_deref(),
+            CliValue::CliDecimal(prop) => prop.name.as_deref(),
             CliValue::CliBuffer(prop) => prop.name.as_deref(),
             CliValue::CliGuid(prop) => prop.name.as_deref(),
             CliValue::CliUri(prop) => prop.name.as_deref(),
             CliValue::CliVersion(prop) => prop.name.as_deref(),
             CliValue::CliXmlDocument(prop) => prop.name.as_deref(),
             CliValue::CliScriptBlock(prop) => prop.name.as_deref(),
-            _ => None,
         }
     }
 
     pub fn is_null(&self) -> bool {
         match *self {
-            CliValue::Null => true,
+            CliValue::CliNull(_) => true,
             _ => false,
         }
     }
@@ -667,6 +711,20 @@ impl CliValue {
     pub fn as_str(&self) -> Option<&str> {
         match &*self {
             CliValue::CliString(prop) => Some(&prop.value),
+            _ => None,
+        }
+    }
+
+    pub fn is_char(&self) -> bool {
+        match *self {
+            CliValue::CliChar(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn as_char(&self) -> Option<char> {
+        match &*self {
+            CliValue::CliChar(prop) => Some(prop.value),
             _ => None,
         }
     }
@@ -720,7 +778,7 @@ impl CliValue {
         }
     }
 
-    pub fn as_uint8(&self) -> Option<u8> {
+    pub fn as_u8(&self) -> Option<u8> {
         match &*self {
             CliValue::CliUInt8(prop) => Some(prop.value),
             _ => None,
@@ -734,7 +792,7 @@ impl CliValue {
         }
     }
 
-    pub fn as_int8(&self) -> Option<i8> {
+    pub fn as_i8(&self) -> Option<i8> {
         match &*self {
             CliValue::CliInt8(prop) => Some(prop.value),
             _ => None,
@@ -748,7 +806,7 @@ impl CliValue {
         }
     }
 
-    pub fn as_uint16(&self) -> Option<u16> {
+    pub fn as_u16(&self) -> Option<u16> {
         match &*self {
             CliValue::CliUInt8(prop) => Some(prop.value as u16),
             CliValue::CliUInt16(prop) => Some(prop.value),
@@ -763,7 +821,7 @@ impl CliValue {
         }
     }
 
-    pub fn as_int16(&self) -> Option<i16> {
+    pub fn as_i16(&self) -> Option<i16> {
         match &*self {
             CliValue::CliInt8(prop) => Some(prop.value as i16),
             CliValue::CliInt16(prop) => Some(prop.value),
@@ -778,7 +836,7 @@ impl CliValue {
         }
     }
 
-    pub fn as_uint32(&self) -> Option<u32> {
+    pub fn as_u32(&self) -> Option<u32> {
         match &*self {
             CliValue::CliUInt8(prop) => Some(prop.value as u32),
             CliValue::CliUInt16(prop) => Some(prop.value as u32),
@@ -794,7 +852,7 @@ impl CliValue {
         }
     }
 
-    pub fn as_int32(&self) -> Option<i32> {
+    pub fn as_i32(&self) -> Option<i32> {
         match &*self {
             CliValue::CliInt8(prop) => Some(prop.value as i32),
             CliValue::CliInt16(prop) => Some(prop.value as i32),
@@ -810,7 +868,7 @@ impl CliValue {
         }
     }
 
-    pub fn as_uint64(&self) -> Option<u64> {
+    pub fn as_u64(&self) -> Option<u64> {
         match &*self {
             CliValue::CliUInt8(prop) => Some(prop.value as u64),
             CliValue::CliUInt16(prop) => Some(prop.value as u64),
@@ -827,7 +885,7 @@ impl CliValue {
         }
     }
 
-    pub fn as_int64(&self) -> Option<i64> {
+    pub fn as_i64(&self) -> Option<i64> {
         match &*self {
             CliValue::CliInt8(prop) => Some(prop.value as i64),
             CliValue::CliInt16(prop) => Some(prop.value as i64),
@@ -862,6 +920,20 @@ impl CliValue {
         match &*self {
             CliValue::CliFloat(prop) => Some(prop.value as f64),
             CliValue::CliDouble(prop) => Some(prop.value),
+            _ => None,
+        }
+    }
+
+    pub fn is_decimal(&self) -> bool {
+        match *self {
+            CliValue::CliDecimal(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn as_d128(&self) -> Option<d128> {
+        match &*self {
+            CliValue::CliDecimal(prop) => Some(prop.value),
             _ => None,
         }
     }
@@ -965,6 +1037,7 @@ fn try_get_name_attr<B>(reader: &Reader<B>, event: &events::BytesStart) -> Optio
 
 pub fn parse_cli_xml(cli_xml: &str) -> Vec<CliObject> {
     let mut reader = Reader::from_str(cli_xml);
+    reader.expand_empty_elements(true);
     reader.trim_text(true);
 
     let mut objs: Vec<CliObject> = Vec::new();
@@ -1099,7 +1172,13 @@ pub fn parse_cli_xml(cli_xml: &str) -> Vec<CliObject> {
                         let val = CliDouble::new_from_str(prop_name.as_deref(), &txt).unwrap();
                         obj.values.push(CliValue::CliDouble(val));
                     }
-                    b"AB" => {
+                    b"D" => {
+                        let txt = reader.read_text(event.name()).unwrap();
+                        let prop_name = try_get_name_attr(&reader, &event);
+                        let val = CliDecimal::new_from_str(prop_name.as_deref(), &txt).unwrap();
+                        obj.values.push(CliValue::CliDecimal(val));
+                    }
+                    b"BA" => {
                         let txt = reader.read_text(event.name()).unwrap();
                         let prop_name = try_get_name_attr(&reader, &event);
                         let val = CliBuffer::new_from_str(prop_name.as_deref(), &txt).unwrap();
@@ -1136,12 +1215,14 @@ pub fn parse_cli_xml(cli_xml: &str) -> Vec<CliObject> {
                         obj.values.push(CliValue::CliScriptBlock(val));
                     }
                     b"Nil" => {
-                        obj.values.push(CliValue::Null);
+                        let prop_name = try_get_name_attr(&reader, &event);
+                        let val = CliNull::new(prop_name.as_deref());
+                        obj.values.push(CliValue::CliNull(val));
                     }
                     _ => {
                         let event_name = event.name();
                         let tag_name = String::from_utf8_lossy(event_name.as_ref());
-                        println!("unsupported: {}", &tag_name);
+                        eprintln!("unsupported: {}", &tag_name);
                     }
                 }
             }
@@ -1152,6 +1233,7 @@ pub fn parse_cli_xml(cli_xml: &str) -> Vec<CliObject> {
                 }
                 _ => {}
             },
+            Ok(Event::Text(_event)) => {}
             Ok(Event::Eof) => break,
             Err(event) => panic!(
                 "Error at position {}: {:?}",

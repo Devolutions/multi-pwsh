@@ -66,8 +66,181 @@ mod pwsh {
             .is_some());
     }
 
+    /*
+    $MyObj = [PSCustomObject]@{
+        MyString = "Purée"
+        MyChar = [char] 'à'
+        MyBool = [bool] $true
+        MyDateTime = [System.DateTime]::new(633435181522731993)
+        MyDuration = [System.TimeSpan]::new(90269026)
+        MyU8 = [byte] 254
+        MyI8 = [sbyte] -127
+        MyU16 = [ushort] 65535
+        MyI16 = [short] -32767
+        MyU32 = [uint] 4294967295
+        MyI32 = [int] -2147483648
+        MyU64 = [ulong] 18446744073709551615
+        MyI64 = [long] -9223372036854775808
+        MyFloat = [float] 12.34
+        MyDouble = [double] 34.56
+        MyDecimal = [decimal] 56.78
+        MyBuffer = [System.Convert]::FromBase64String('AQIDBA==')
+        MyGuid = [System.Guid]::new('792e5b37-4505-47ef-b7d2-8711bb7affa8')
+        MyUri = [System.Uri]::new('http://www.microsoft.com/')
+        MyVersion = [System.Version]::new('6.2.1.3')
+        MyXmlDocument = [xml] '<item><name>laptop</name></item>'
+        MyScriptBlock = [scriptblock] {Get-Command -Type Cmdlet}
+        MyNull = $null
+    }
+    [System.Management.Automation.PSSerializer]::Serialize($MyObj)
+    */
+
     #[test]
-    fn test_cli_xml() {
+    fn test_cli_xml_primitive() {
+        let obj_xml = r#"
+<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04">
+    <Obj RefId="0">
+        <TN RefId="0">
+            <T>System.Management.Automation.PSCustomObject</T>
+            <T>System.Object</T>
+        </TN>
+        <MS>
+            <S N="MyString">Purée</S>
+            <C N="MyChar">224</C>
+            <B N="MyBool">true</B>
+            <DT N="MyDateTime">2008-04-11T13:42:32.2731993</DT>
+            <TS N="MyDuration">PT9.0269026S</TS>
+            <By N="MyU8">254</By>
+            <SB N="MyI8">-127</SB>
+            <U16 N="MyU16">65535</U16>
+            <I16 N="MyI16">-32767</I16>
+            <U32 N="MyU32">4294967295</U32>
+            <I32 N="MyI32">-2147483648</I32>
+            <U64 N="MyU64">18446744073709551615</U64>
+            <I64 N="MyI64">-9223372036854775808</I64>
+            <Sg N="MyFloat">12.34</Sg>
+            <Db N="MyDouble">34.56</Db>
+            <D N="MyDecimal">56.78</D>
+            <BA N="MyBuffer">AQIDBA==</BA>
+            <G N="MyGuid">792e5b37-4505-47ef-b7d2-8711bb7affa8</G>
+            <URI N="MyUri">http://www.microsoft.com/</URI>
+            <Version N="MyVersion">6.2.1.3</Version>
+            <XD N="MyXmlDocument">&lt;item&gt;&lt;name&gt;laptop&lt;/name&gt;&lt;/item&gt;</XD>
+            <SBK N="MyScriptBlock">Get-Command -Type Cmdlet</SBK>
+            <Nil N="MyNull" />
+        </MS>
+    </Obj>
+</Objs>"#;
+
+        let objs: Vec<CliObject> = parse_cli_xml(obj_xml);
+
+        let obj = objs.get(0).unwrap();
+
+        let string_prop = obj.values.get(0).unwrap();
+        assert!(string_prop.is_string());
+        assert_eq!(string_prop.as_str(), Some("Purée"));
+
+        let char_prop = obj.values.get(1).unwrap();
+        assert!(char_prop.is_char());
+        assert_eq!(char_prop.as_char(), Some('à'));
+
+        let bool_prop = obj.values.get(2).unwrap();
+        assert!(bool_prop.is_bool());
+        assert_eq!(bool_prop.as_bool(), Some(true));
+
+        let datetime_prop = obj.values.get(3).unwrap();
+        assert!(datetime_prop.is_datetime());
+
+        let duration_prop = obj.values.get(4).unwrap();
+        assert!(duration_prop.is_duration());
+
+        let uint8_prop = obj.values.get(5).unwrap();
+        assert!(uint8_prop.is_uint8());
+        assert_eq!(uint8_prop.as_u8(), Some(254));
+
+        let int8_prop = obj.values.get(6).unwrap();
+        assert!(int8_prop.is_int8());
+        assert_eq!(int8_prop.as_i8(), Some(-127));
+
+        let uint16_prop = obj.values.get(7).unwrap();
+        assert!(uint16_prop.is_uint16());
+        assert_eq!(uint16_prop.as_u16(), Some(65535));
+
+        let int16_prop = obj.values.get(8).unwrap();
+        assert!(int16_prop.is_int16());
+        assert_eq!(int16_prop.as_i16(), Some(-32767));
+
+        let uint32_prop = obj.values.get(9).unwrap();
+        assert!(uint32_prop.is_uint32());
+        assert_eq!(uint32_prop.as_u32(), Some(4294967295));
+
+        let int32_prop = obj.values.get(10).unwrap();
+        assert!(int32_prop.is_int32());
+        assert_eq!(int32_prop.as_i32(), Some(-2147483648));
+
+        let uint64_prop = obj.values.get(11).unwrap();
+        assert!(uint64_prop.is_uint64());
+        assert_eq!(uint64_prop.as_u64(), Some(18446744073709551615));
+
+        let int64_prop = obj.values.get(12).unwrap();
+        assert!(int64_prop.is_int64());
+        assert_eq!(int64_prop.as_i64(), Some(-9223372036854775808));
+
+        let float_prop = obj.values.get(13).unwrap();
+        assert!(float_prop.is_float());
+        assert_eq!(float_prop.as_float(), Some(12.34));
+
+        let double_prop = obj.values.get(14).unwrap();
+        assert!(double_prop.is_double());
+        assert_eq!(double_prop.as_double(), Some(34.56));
+
+        let decimal_prop = obj.values.get(15).unwrap();
+        assert!(decimal_prop.is_decimal());
+
+        let buffer_prop = obj.values.get(16).unwrap();
+        assert!(buffer_prop.is_buffer());
+        assert_eq!(buffer_prop.as_bytes(), Some(vec![1, 2, 3, 4u8].as_ref()));
+
+        let guid_prop = obj.values.get(17).unwrap();
+        assert!(guid_prop.is_guid());
+        assert_eq!(
+            guid_prop.as_guid(),
+            uuid::Uuid::parse_str("792e5b37-4505-47ef-b7d2-8711bb7affa8")
+                .ok()
+                .as_ref()
+        );
+
+        let uri_prop = obj.values.get(18).unwrap();
+        assert!(uri_prop.is_uri());
+        assert_eq!(
+            uri_prop.as_uri(),
+            url::Url::parse("http://www.microsoft.com/").ok().as_ref()
+        );
+
+        let version_prop = obj.values.get(19).unwrap();
+        assert!(version_prop.is_version());
+        assert_eq!(version_prop.as_version(), Some("6.2.1.3"));
+
+        let xml_document_prop = obj.values.get(20).unwrap();
+        assert!(xml_document_prop.is_xml_document());
+        assert_eq!(
+            xml_document_prop.as_xml_document(),
+            Some("&lt;item&gt;&lt;name&gt;laptop&lt;/name&gt;&lt;/item&gt;")
+        );
+
+        let script_block_prop = obj.values.get(21).unwrap();
+        assert!(script_block_prop.is_script_block());
+        assert_eq!(
+            script_block_prop.as_script_block(),
+            Some("Get-Command -Type Cmdlet")
+        );
+
+        let null_prop = obj.values.get(22).unwrap();
+        assert!(null_prop.is_null());
+    }
+
+    #[test]
+    fn test_cli_xml_complex() {
         // Get-VM IT-HELP-DVLS | Select-Object -Property VMId, VMName, State, Uptime, Status, Version
         let vm_xml = r#"<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04">
     <Obj RefId="0">
