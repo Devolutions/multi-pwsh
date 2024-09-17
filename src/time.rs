@@ -1,26 +1,39 @@
 use time::format_description::well_known::Iso8601;
-use time::macros::{date, time};
-use time::PrimitiveDateTime;
+use time::macros::{date, time, format_description};
+use time::{OffsetDateTime, PrimitiveDateTime, UtcOffset};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DateTime {
-    inner: PrimitiveDateTime,
+    inner: OffsetDateTime,
 }
 
+#[allow(dead_code)] 
 impl DateTime {
     pub fn parse(input: &str) -> Option<Self> {
-        let inner = time::PrimitiveDateTime::parse(input, &Iso8601::DEFAULT).ok()?;
-        Some(Self { inner: inner })
+        // Try parsing as OffsetDateTime (with timezone)
+        if let Ok(inner) = OffsetDateTime::parse(input, &Iso8601::DEFAULT) {
+            return Some(Self { inner });
+        }
+        
+        // If parsing without timezone, assume UTC (Offset +00:00)
+        let format = format_description!("[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond]");
+        if let Ok(primitive) = PrimitiveDateTime::parse(input, &format) {
+            let inner = primitive.assume_offset(UtcOffset::UTC);
+            return Some(Self { inner });
+        }
+
+        None
     }
 
     pub fn format(&self) -> String {
-        self.inner.format(&Iso8601::DEFAULT).unwrap()
+        let format = format_description!("[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:7][offset_hour sign:mandatory]:[offset_minute]");
+        self.inner.format(&format).unwrap()
     }
 }
 
 impl Default for DateTime {
     fn default() -> Self {
-        let inner = PrimitiveDateTime::new(date!(2000 - 01 - 01), time!(0:00));
+        let inner = OffsetDateTime::new_utc(date!(2000 - 01 - 01), time!(0:00));
         DateTime { inner: inner }
     }
 }
@@ -54,8 +67,8 @@ mod pwsh {
     #[test]
     fn parse_datetime() {
         assert_eq!(
-            DateTime::parse("2022-11-09 01:23:45").unwrap().format(),
-            "2022-11-09 01:23:45".to_string()
+            DateTime::parse("2024-09-17T10:55:56.7639518-04:00").unwrap().format(),
+            "2024-09-17T10:55:56.7639518-04:00".to_string()
         )
     }
 }

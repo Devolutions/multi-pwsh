@@ -11,3 +11,5 @@ cmake_install.cmake
 .idea/
 cmake-build-debug/
 resources/
+
+pwsh-host-rs.sln
