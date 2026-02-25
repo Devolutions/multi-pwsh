@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod pwsh {
+    use jiff::Timestamp;
     use uuid::Uuid;
 
     use crate::bindings::PowerShell;
@@ -45,7 +46,9 @@ mod pwsh {
 
         let date_json = pwsh.export_to_json("Date");
         println!("\nDate (JSON):\n{}", &date_json);
-        assert_eq!(&date_json, "\"2019-12-31T19:00:00-05:00\"");
+        let actual = date_json.trim_matches('"').parse::<Timestamp>().unwrap();
+        let expected = "2020-01-01T00:00:00+00:00".parse::<Timestamp>().unwrap();
+        assert_eq!(actual, expected);
 
         // Get-Verb -Verb Test | Set-Variable -Name Verb
         pwsh.add_script("Get-Verb -Verb Test");

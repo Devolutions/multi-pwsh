@@ -15,11 +15,11 @@ fn normalize_output(bytes: &[u8]) -> String {
 }
 
 fn find_shim_binary() -> PathBuf {
-    if let Some(path) = std::env::var_os("CARGO_BIN_EXE_pwsh-host-cli") {
+    if let Some(path) = std::env::var_os("CARGO_BIN_EXE_pwsh-host") {
         return PathBuf::from(path);
     }
 
-    if let Some(path) = std::env::var_os("CARGO_BIN_EXE_pwsh_host_cli") {
+    if let Some(path) = std::env::var_os("CARGO_BIN_EXE_pwsh_host") {
         return PathBuf::from(path);
     }
 
@@ -30,7 +30,7 @@ fn find_shim_binary() -> PathBuf {
         path.pop();
     }
 
-    path.push(format!("pwsh-host-cli{}", std::env::consts::EXE_SUFFIX));
+    path.push(format!("pwsh-host{}", std::env::consts::EXE_SUFFIX));
     path
 }
 
@@ -71,7 +71,7 @@ fn assert_invocation_matches(args: &[OsString], stdin_text: Option<&str>, workin
     let shim = find_shim_binary();
     assert!(
         shim.exists(),
-        "failed to locate pwsh-host-cli test binary at {}",
+        "failed to locate pwsh-host test binary at {}",
         shim.display()
     );
 
@@ -230,9 +230,7 @@ fn stdin_driven_modes_match_pwsh() {
 
 #[test]
 fn file_mode_and_exit_codes_match_pwsh() {
-    let (_dir, script_path) = create_temp_script(
-        "param([string]$Name, [switch]$All)\n\"name=$Name all=$All\"\n",
-    );
+    let (_dir, script_path) = create_temp_script("param([string]$Name, [switch]$All)\n\"name=$Name all=$All\"\n");
 
     assert_invocation_matches(
         &[
