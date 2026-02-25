@@ -7,6 +7,4 @@ description = "pwsh-compatible CLI backed by pwsh-host and hostfxr"
 
 [dependencies]
 pwsh-host = { path = "../pwsh-host" }
-
-[dev-dependencies]
 base64 = "0.22"
