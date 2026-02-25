@@ -83,8 +83,8 @@ jobs:
       - name: Run Rust tests
         run: cargo test --all-targets
 
-      - name: Build .NET solution
-        run: dotnet build pwsh-host-rs.sln
+      - name: Build .NET project
+        run: dotnet build dotnet/Bindings.csproj
 
       - name: Run .NET tests
-        run: dotnet test pwsh-host-rs.sln --no-build
+        run: dotnet test dotnet/Bindings.csproj --no-build
