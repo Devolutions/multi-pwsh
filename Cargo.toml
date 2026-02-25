@@ -20,8 +20,7 @@ quick-error = "2.0"
 quick-xml = "0.26"
 decimal = { version = "2.1", default-features = false }
 which = { version = "3.0", default-features = false, features = [] }
-time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
-iso8601-duration = "0.1"
+jiff = "0.2"
 base64 = "0.13"
 uuid = "1.2"
 url = "2.3"

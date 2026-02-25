@@ -1,14 +1,16 @@
 #![allow(dead_code)]
 
-use crate::time::parse_iso8601_duration;
-use crate::time::DateTime;
+use std::collections::HashMap;
+use std::time::Duration;
+
 use decimal::d128;
 use quick_xml::events;
 use quick_xml::events::Event;
 use quick_xml::reader::Reader;
-use std::time::Duration;
 use url::Url;
 use uuid::Uuid;
+
+use crate::time::{parse_iso8601_duration, DateTime};
 
 // [MS-PSRP]: PowerShell Remoting Protocol
 // https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp
@@ -1032,7 +1034,54 @@ fn try_get_ref_id_attr<B>(reader: &Reader<B>, event: &events::BytesStart) -> Opt
 fn try_get_name_attr<B>(reader: &Reader<B>, event: &events::BytesStart) -> Option<String> {
     let attr = event.try_get_attribute("N").ok().unwrap()?;
     let value = attr.decode_and_unescape_value(&reader).ok()?;
-    Some(value.to_string())
+    Some(decode_psrp_string(&value))
+}
+
+fn push_value(stack: &mut Vec<CliObject>, value: CliValue) {
+    if let Some(current_obj) = stack.last_mut() {
+        current_obj.values.push(value);
+    }
+}
+
+fn push_object(stack: &mut Vec<CliObject>, objs: &mut Vec<CliObject>, obj: CliObject) {
+    if let Some(parent_obj) = stack.last_mut() {
+        parent_obj.values.push(CliValue::CliObject(obj));
+    } else {
+        objs.push(obj);
+    }
+}
+
+fn decode_psrp_string(value: &str) -> String {
+    let mut utf16_units: Vec<u16> = Vec::new();
+    let bytes = value.as_bytes();
+    let mut index = 0usize;
+
+    while index < bytes.len() {
+        let is_escape = index + 6 < bytes.len()
+            && bytes[index] == b'_'
+            && matches!(bytes[index + 1], b'x' | b'X')
+            && bytes[index + 2].is_ascii_hexdigit()
+            && bytes[index + 3].is_ascii_hexdigit()
+            && bytes[index + 4].is_ascii_hexdigit()
+            && bytes[index + 5].is_ascii_hexdigit()
+            && bytes[index + 6] == b'_';
+
+        if is_escape {
+            if let Ok(hex_value) = u16::from_str_radix(&value[index + 2..index + 6], 16) {
+                utf16_units.push(hex_value);
+                index += 7;
+                continue;
+            }
+        }
+
+        let next_char = value[index..].chars().next().unwrap();
+        let mut units = [0u16; 2];
+        let encoded = next_char.encode_utf16(&mut units);
+        utf16_units.extend_from_slice(encoded);
+        index += next_char.len_utf8();
+    }
+
+    String::from_utf16_lossy(&utf16_units)
 }
 
 pub fn parse_cli_xml(cli_xml: &str) -> Vec<CliObject> {
@@ -1041,7 +1090,10 @@ pub fn parse_cli_xml(cli_xml: &str) -> Vec<CliObject> {
     reader.trim_text(true);
 
     let mut objs: Vec<CliObject> = Vec::new();
-    let mut obj = CliObject::default();
+    let mut object_stack: Vec<CliObject> = Vec::new();
+    let mut object_refs: HashMap<String, CliObject> = HashMap::new();
+    let mut type_refs: HashMap<String, Vec<String>> = HashMap::new();
+    let mut current_type_names: Option<(Option<String>, Vec<String>)> = None;
 
     loop {
         let event = reader.read_event();
@@ -1050,27 +1102,46 @@ pub fn parse_cli_xml(cli_xml: &str) -> Vec<CliObject> {
                 match event.name().as_ref() {
                     b"Objs" => {}
                     b"Obj" => {
+                        let mut obj = CliObject::default();
+                        obj.name = try_get_name_attr(&reader, &event);
+                        obj.ref_id = try_get_ref_id_attr(&reader, &event);
+                        object_stack.push(obj);
+                    }
+                    b"Ref" => {
                         if let Some(ref_id) = try_get_ref_id_attr(&reader, &event) {
-                            obj.ref_id = Some(ref_id);
+                            if let Some(target_obj) = object_refs.get(&ref_id) {
+                                let mut target_obj = target_obj.clone();
+                                if let Some(name) = try_get_name_attr(&reader, &event) {
+                                    target_obj.name = Some(name);
+                                }
+                                push_object(&mut object_stack, &mut objs, target_obj);
+                            }
                         }
                     }
                     b"TN" => {
-                        if let Some(_ref_id) = try_get_ref_id_attr(&reader, &event) {
-                            //println!("TN RefId={}", ref_id);
-                        }
+                        let ref_id = try_get_ref_id_attr(&reader, &event);
+                        current_type_names = Some((ref_id, Vec::new()));
                     }
                     b"T" => {
                         let txt = reader.read_text(event.name()).unwrap();
-                        obj.type_names.push(txt.to_string());
+                        if let Some((_ref_id, names)) = current_type_names.as_mut() {
+                            names.push(decode_psrp_string(&txt));
+                        }
                     }
                     b"TNRef" => {
-                        if let Some(_ref_id) = try_get_ref_id_attr(&reader, &event) {
-                            //println!("TNRef RefId={}", ref_id);
+                        if let Some(ref_id) = try_get_ref_id_attr(&reader, &event) {
+                            if let Some(type_names) = type_refs.get(&ref_id) {
+                                if let Some(current_obj) = object_stack.last_mut() {
+                                    current_obj.type_names = type_names.clone();
+                                }
+                            }
                         }
                     }
                     b"ToString" => {
                         let txt = reader.read_text(event.name()).unwrap();
-                        obj.string_repr = Some(txt.to_string());
+                        if let Some(current_obj) = object_stack.last_mut() {
+                            current_obj.string_repr = Some(decode_psrp_string(&txt));
+                        }
                     }
                     b"Props" => {
                         // Adapted Properties
@@ -1082,142 +1153,146 @@ pub fn parse_cli_xml(cli_xml: &str) -> Vec<CliObject> {
                     }
                     b"LST" => {}
                     b"IE" => {}
+                    b"STK" => {}
+                    b"QUE" => {}
+                    b"DCT" => {}
+                    b"En" => {}
                     b"B" => {
                         let txt = reader.read_text(event.name()).unwrap();
                         let prop_name = try_get_name_attr(&reader, &event);
                         let val = CliBool::new_from_str(prop_name.as_deref(), &txt).unwrap();
-                        obj.values.push(CliValue::CliBool(val));
+                        push_value(&mut object_stack, CliValue::CliBool(val));
                     }
                     b"S" => {
-                        let txt = reader.read_text(event.name()).unwrap();
+                        let txt = decode_psrp_string(&reader.read_text(event.name()).unwrap());
                         let prop_name = try_get_name_attr(&reader, &event);
                         let val = CliString::new(prop_name.as_deref(), &txt);
-                        obj.values.push(CliValue::CliString(val));
+                        push_value(&mut object_stack, CliValue::CliString(val));
                     }
                     b"C" => {
                         let txt = reader.read_text(event.name()).unwrap();
                         let prop_name = try_get_name_attr(&reader, &event);
                         let val = CliChar::new_from_str(prop_name.as_deref(), &txt).unwrap();
-                        obj.values.push(CliValue::CliChar(val));
+                        push_value(&mut object_stack, CliValue::CliChar(val));
                     }
                     b"By" => {
                         let txt = reader.read_text(event.name()).unwrap();
                         let prop_name = try_get_name_attr(&reader, &event);
                         let val = CliUInt8::new_from_str(prop_name.as_deref(), &txt).unwrap();
-                        obj.values.push(CliValue::CliUInt8(val));
+                        push_value(&mut object_stack, CliValue::CliUInt8(val));
                     }
                     b"SB" => {
                         let txt = reader.read_text(event.name()).unwrap();
                         let prop_name = try_get_name_attr(&reader, &event);
                         let val = CliInt8::new_from_str(prop_name.as_deref(), &txt).unwrap();
-                        obj.values.push(CliValue::CliInt8(val));
+                        push_value(&mut object_stack, CliValue::CliInt8(val));
                     }
                     b"U16" => {
                         let txt = reader.read_text(event.name()).unwrap();
                         let prop_name = try_get_name_attr(&reader, &event);
                         let val = CliUInt16::new_from_str(prop_name.as_deref(), &txt).unwrap();
-                        obj.values.push(CliValue::CliUInt16(val));
+                        push_value(&mut object_stack, CliValue::CliUInt16(val));
                     }
                     b"I16" => {
                         let txt = reader.read_text(event.name()).unwrap();
                         let prop_name = try_get_name_attr(&reader, &event);
                         let val = CliInt16::new_from_str(prop_name.as_deref(), &txt).unwrap();
-                        obj.values.push(CliValue::CliInt16(val));
+                        push_value(&mut object_stack, CliValue::CliInt16(val));
                     }
                     b"U32" => {
                         let txt = reader.read_text(event.name()).unwrap();
                         let prop_name = try_get_name_attr(&reader, &event);
                         let val = CliUInt32::new_from_str(prop_name.as_deref(), &txt).unwrap();
-                        obj.values.push(CliValue::CliUInt32(val));
+                        push_value(&mut object_stack, CliValue::CliUInt32(val));
                     }
                     b"I32" => {
                         let txt = reader.read_text(event.name()).unwrap();
                         let prop_name = try_get_name_attr(&reader, &event);
                         let val = CliInt32::new_from_str(prop_name.as_deref(), &txt).unwrap();
-                        obj.values.push(CliValue::CliInt32(val));
+                        push_value(&mut object_stack, CliValue::CliInt32(val));
                     }
                     b"U64" => {
                         let txt = reader.read_text(event.name()).unwrap();
                         let prop_name = try_get_name_attr(&reader, &event);
                         let val = CliUInt64::new_from_str(prop_name.as_deref(), &txt).unwrap();
-                        obj.values.push(CliValue::CliUInt64(val));
+                        push_value(&mut object_stack, CliValue::CliUInt64(val));
                     }
                     b"I64" => {
                         let txt = reader.read_text(event.name()).unwrap();
                         let prop_name = try_get_name_attr(&reader, &event);
                         let val = CliInt64::new_from_str(prop_name.as_deref(), &txt).unwrap();
-                        obj.values.push(CliValue::CliInt64(val));
+                        push_value(&mut object_stack, CliValue::CliInt64(val));
                     }
                     b"DT" => {
                         let txt = reader.read_text(event.name()).unwrap();
                         let prop_name = try_get_name_attr(&reader, &event);
                         let val = CliDateTime::new_from_str(prop_name.as_deref(), &txt).unwrap();
-                        obj.values.push(CliValue::CliDateTime(val));
+                        push_value(&mut object_stack, CliValue::CliDateTime(val));
                     }
                     b"TS" => {
                         let txt = reader.read_text(event.name()).unwrap();
                         let prop_name = try_get_name_attr(&reader, &event);
                         let val = CliDuration::new_from_str(prop_name.as_deref(), &txt).unwrap();
-                        obj.values.push(CliValue::CliDuration(val));
+                        push_value(&mut object_stack, CliValue::CliDuration(val));
                     }
                     b"Sg" => {
                         let txt = reader.read_text(event.name()).unwrap();
                         let prop_name = try_get_name_attr(&reader, &event);
                         let val = CliFloat::new_from_str(prop_name.as_deref(), &txt).unwrap();
-                        obj.values.push(CliValue::CliFloat(val));
+                        push_value(&mut object_stack, CliValue::CliFloat(val));
                     }
                     b"Db" => {
                         let txt = reader.read_text(event.name()).unwrap();
                         let prop_name = try_get_name_attr(&reader, &event);
                         let val = CliDouble::new_from_str(prop_name.as_deref(), &txt).unwrap();
-                        obj.values.push(CliValue::CliDouble(val));
+                        push_value(&mut object_stack, CliValue::CliDouble(val));
                     }
                     b"D" => {
                         let txt = reader.read_text(event.name()).unwrap();
                         let prop_name = try_get_name_attr(&reader, &event);
                         let val = CliDecimal::new_from_str(prop_name.as_deref(), &txt).unwrap();
-                        obj.values.push(CliValue::CliDecimal(val));
+                        push_value(&mut object_stack, CliValue::CliDecimal(val));
                     }
                     b"BA" => {
                         let txt = reader.read_text(event.name()).unwrap();
                         let prop_name = try_get_name_attr(&reader, &event);
                         let val = CliBuffer::new_from_str(prop_name.as_deref(), &txt).unwrap();
-                        obj.values.push(CliValue::CliBuffer(val));
+                        push_value(&mut object_stack, CliValue::CliBuffer(val));
                     }
                     b"G" => {
                         let txt = reader.read_text(event.name()).unwrap();
                         let prop_name = try_get_name_attr(&reader, &event);
                         let val = CliGuid::new_from_str(prop_name.as_deref(), &txt).unwrap();
-                        obj.values.push(CliValue::CliGuid(val));
+                        push_value(&mut object_stack, CliValue::CliGuid(val));
                     }
                     b"URI" => {
-                        let txt = reader.read_text(event.name()).unwrap();
+                        let txt = decode_psrp_string(&reader.read_text(event.name()).unwrap());
                         let prop_name = try_get_name_attr(&reader, &event);
                         let val = CliUri::new_from_str(prop_name.as_deref(), &txt).unwrap();
-                        obj.values.push(CliValue::CliUri(val));
+                        push_value(&mut object_stack, CliValue::CliUri(val));
                     }
                     b"Version" => {
                         let txt = reader.read_text(event.name()).unwrap();
                         let prop_name = try_get_name_attr(&reader, &event);
                         let val = CliVersion::new_from_str(prop_name.as_deref(), &txt).unwrap();
-                        obj.values.push(CliValue::CliVersion(val));
+                        push_value(&mut object_stack, CliValue::CliVersion(val));
                     }
                     b"XD" => {
-                        let txt = reader.read_text(event.name()).unwrap();
+                        let txt = decode_psrp_string(&reader.read_text(event.name()).unwrap());
                         let prop_name = try_get_name_attr(&reader, &event);
                         let val = CliXmlDocument::new_from_str(prop_name.as_deref(), &txt).unwrap();
-                        obj.values.push(CliValue::CliXmlDocument(val));
+                        push_value(&mut object_stack, CliValue::CliXmlDocument(val));
                     }
                     b"SBK" => {
-                        let txt = reader.read_text(event.name()).unwrap();
+                        let txt = decode_psrp_string(&reader.read_text(event.name()).unwrap());
                         let prop_name = try_get_name_attr(&reader, &event);
                         let val = CliScriptBlock::new_from_str(prop_name.as_deref(), &txt).unwrap();
-                        obj.values.push(CliValue::CliScriptBlock(val));
+                        push_value(&mut object_stack, CliValue::CliScriptBlock(val));
                     }
                     b"Nil" => {
                         let prop_name = try_get_name_attr(&reader, &event);
                         let val = CliNull::new(prop_name.as_deref());
-                        obj.values.push(CliValue::CliNull(val));
+                        push_value(&mut object_stack, CliValue::CliNull(val));
                     }
                     _ => {
                         let event_name = event.name();
@@ -1227,19 +1302,29 @@ pub fn parse_cli_xml(cli_xml: &str) -> Vec<CliObject> {
                 }
             }
             Ok(Event::End(event)) => match event.name().as_ref() {
+                b"TN" => {
+                    if let Some((ref_id, type_names)) = current_type_names.take() {
+                        if let Some(current_obj) = object_stack.last_mut() {
+                            current_obj.type_names = type_names.clone();
+                        }
+                        if let Some(ref_id) = ref_id {
+                            type_refs.insert(ref_id, type_names);
+                        }
+                    }
+                }
                 b"Obj" => {
-                    objs.push(obj);
-                    obj = CliObject::default();
+                    if let Some(current_obj) = object_stack.pop() {
+                        if let Some(ref_id) = current_obj.ref_id.clone() {
+                            object_refs.insert(ref_id, current_obj.clone());
+                        }
+                        push_object(&mut object_stack, &mut objs, current_obj);
+                    }
                 }
                 _ => {}
             },
             Ok(Event::Text(_event)) => {}
             Ok(Event::Eof) => break,
-            Err(event) => panic!(
-                "Error at position {}: {:?}",
-                reader.buffer_position(),
-                event
-            ),
+            Err(event) => panic!("Error at position {}: {:?}", reader.buffer_position(), event),
             _ => (),
         }
     }

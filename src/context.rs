@@ -1,14 +1,15 @@
+use core::{mem, ptr};
+use std::borrow::BorrowMut;
+use std::marker::PhantomData;
+use std::ptr::NonNull;
+
 use crate::delegate_loader::{AssemblyDelegateLoader, DelegateLoader, MethodWithUnknownSignature};
 use crate::error::Error;
 use crate::host_exit_code::HostExitCode;
 use crate::hostfxr::{
-    GetFunctionPointerFn, Hostfxr, HostfxrDelegateType, Hostfxrhandle,
-    LoadAssemblyAndGetFunctionPointerFn,
+    GetFunctionPointerFn, Hostfxr, HostfxrDelegateType, Hostfxrhandle, LoadAssemblyAndGetFunctionPointerFn,
 };
 use crate::pdcstring::PdCStr;
-use core::{mem, ptr};
-use std::borrow::BorrowMut;
-use std::{marker::PhantomData, ptr::NonNull};
 
 /// A marker struct indicating that the context was initialized for the dotnet command line.
 /// This means that it is possible to run the application associated with the context.
@@ -85,8 +86,7 @@ impl<'a, I> HostfxrContext<'a, I> {
     #[allow(dead_code)]
     pub fn get_delegate_loader(&self) -> Result<DelegateLoader, Error> {
         Ok(DelegateLoader {
-            get_load_assembly_and_get_function_pointer: self
-                .get_load_assembly_and_get_function_pointer_delegate()?,
+            get_load_assembly_and_get_function_pointer: self.get_load_assembly_and_get_function_pointer_delegate()?,
             get_function_pointer: self.get_get_function_pointer_delegate()?,
         })
     }
