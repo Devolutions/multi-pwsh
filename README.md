@@ -48,15 +48,15 @@ cargo build --all-targets
 dotnet build pwsh-host-rs.sln
 ```
 
-## Run `pwsh-host-cli`
+## Run `pwsh-host`
 
 ```powershell
-cargo run -p pwsh-host-cli -- -NoLogo -NoProfile -Command "$PSVersionTable.PSVersion"
+cargo run -p pwsh-host-cli --bin pwsh-host -- -NoLogo -NoProfile -Command "$PSVersionTable.PSVersion"
 ```
 
 ## `-NamedPipeCommand` (Windows)
 
-`pwsh-host-cli` supports a custom shim argument to read command text from a Windows named pipe and forward it to PowerShell through `-EncodedCommand`.
+`pwsh-host` supports a custom shim argument to read command text from a Windows named pipe and forward it to PowerShell through `-EncodedCommand`.
 
 - Argument: `-NamedPipeCommand <pipeName>`
 - Pipe payload format: UTF-8 command text
@@ -69,7 +69,7 @@ Helper script: [scripts/Start-NamedPipeTextServer.ps1](scripts/Start-NamedPipeTe
 Example:
 
 ```powershell
-$pipeName = "pwsh-host-cli-$([Guid]::NewGuid().ToString('N'))"
+$pipeName = "pwsh-host-$([Guid]::NewGuid().ToString('N'))"
 $command = "'hello from named pipe'"
 
 $job = Start-Job -ScriptBlock {
@@ -79,7 +79,7 @@ $job = Start-Job -ScriptBlock {
 		-Command $command | Out-Null
 } -ArgumentList $PWD.Path, $pipeName, $command
 
-cargo run -p pwsh-host-cli -- -NoLogo -NoProfile -NonInteractive -NamedPipeCommand $pipeName
+cargo run -p pwsh-host-cli --bin pwsh-host -- -NoLogo -NoProfile -NonInteractive -NamedPipeCommand $pipeName
 
 Receive-Job $job -Wait -AutoRemoveJob
 ```

@@ -9,11 +9,11 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 
 fn find_shim_binary() -> PathBuf {
-    if let Some(path) = std::env::var_os("CARGO_BIN_EXE_pwsh-host-cli") {
+    if let Some(path) = std::env::var_os("CARGO_BIN_EXE_pwsh-host") {
         return PathBuf::from(path);
     }
 
-    if let Some(path) = std::env::var_os("CARGO_BIN_EXE_pwsh_host_cli") {
+    if let Some(path) = std::env::var_os("CARGO_BIN_EXE_pwsh_host") {
         return PathBuf::from(path);
     }
 
@@ -24,7 +24,7 @@ fn find_shim_binary() -> PathBuf {
         path.pop();
     }
 
-    path.push(format!("pwsh-host-cli{}", std::env::consts::EXE_SUFFIX));
+    path.push(format!("pwsh-host{}", std::env::consts::EXE_SUFFIX));
     path
 }
 
@@ -62,7 +62,7 @@ fn run_shim(args: &[OsString]) -> Output {
     Command::new(shim)
         .args(args)
         .output()
-        .expect("failed to run pwsh-host-cli")
+        .expect("failed to run pwsh-host")
 }
 
 fn assert_output_parity(expected: Output, actual: Output) {

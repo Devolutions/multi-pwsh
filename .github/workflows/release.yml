@@ -1,0 +1,163 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            archive: pwsh-host-linux-x64.zip
+            binary: pwsh-host
+
+          - name: linux-arm64
+            os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            archive: pwsh-host-linux-arm64.zip
+            binary: pwsh-host
+
+          - name: windows-x64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive: pwsh-host-windows-x64.zip
+            binary: pwsh-host.exe
+
+          - name: windows-arm64
+            os: windows-latest
+            target: aarch64-pc-windows-msvc
+            archive: pwsh-host-windows-arm64.zip
+            binary: pwsh-host.exe
+
+          - name: macos-x64
+            os: macos-14
+            target: x86_64-apple-darwin
+            archive: pwsh-host-macos-x64.zip
+            binary: pwsh-host
+
+          - name: macos-arm64
+            os: macos-14
+            target: aarch64-apple-darwin
+            archive: pwsh-host-macos-arm64.zip
+            binary: pwsh-host
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Install Rust toolchain
+        shell: pwsh
+        run: |
+          rustup toolchain install stable --profile minimal --target "${{ matrix.target }}"
+          rustup default stable
+
+      - name: Install Linux ARM64 linker
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Configure static MSVC runtime
+        if: contains(matrix.target, 'windows-msvc')
+        shell: pwsh
+        run: |
+          "RUSTFLAGS=-C target-feature=+crt-static" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Build binary
+        shell: bash
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        run: |
+          cargo build --locked --release --package pwsh-host-cli --bin pwsh-host --target "${{ matrix.target }}"
+
+      - name: Package artifact
+        shell: pwsh
+        env:
+          TARGET: ${{ matrix.target }}
+          BIN_NAME: ${{ matrix.binary }}
+          ARCHIVE_NAME: ${{ matrix.archive }}
+        run: |
+          $target = $env:TARGET
+          $binName = $env:BIN_NAME
+          $archiveName = $env:ARCHIVE_NAME
+
+          $binaryPath = [System.IO.Path]::Combine("target", $target, "release", $binName)
+          if (-not (Test-Path -Path $binaryPath)) {
+            throw "Binary not found: $binaryPath"
+          }
+
+          if (Test-Path -Path $archiveName) {
+            Remove-Item -Path $archiveName -Force
+          }
+
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archive = [System.IO.Compression.ZipFile]::Open($archiveName, [System.IO.Compression.ZipArchiveMode]::Create)
+          try {
+            [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+              $archive,
+              $binaryPath,
+              $binName,
+              [System.IO.Compression.CompressionLevel]::Optimal
+            ) | Out-Null
+          }
+          finally {
+            $archive.Dispose()
+          }
+
+          Write-Host "Created $archiveName"
+
+      - name: Upload packaged artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.archive }}
+          path: ${{ matrix.archive }}
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub release
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Flatten artifact directories
+        run: |
+          find dist -type f -name '*.zip' -exec mv {} dist/ \;
+
+      - name: Generate checksums
+        working-directory: dist
+        run: |
+          sha256sum pwsh-host-*.zip > checksums.txt
+          cat checksums.txt
+
+      - name: Publish release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${{ github.ref_name }}" >/dev/null 2>&1; then
+            gh release upload "${{ github.ref_name }}" dist/pwsh-host-*.zip dist/checksums.txt --clobber
+          else
+            gh release create "${{ github.ref_name }}" dist/pwsh-host-*.zip dist/checksums.txt --generate-notes
+          fi
