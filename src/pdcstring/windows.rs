@@ -1,8 +1,10 @@
-use super::{NulError, PdCStr, PdCString};
 use std::ffi::{OsStr, OsString};
 use std::str::FromStr;
 use std::string;
+
 use widestring::{U16CStr, U16CString};
+
+use super::{NulError, PdCStr, PdCString};
 
 pub type PdCStringInner = U16CString;
 pub type PdCStrInner = U16CStr;

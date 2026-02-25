@@ -1,5 +1,7 @@
+use std::error::Error;
+use std::fmt;
+
 use super::PdUChar;
-use std::{error::Error, fmt};
 
 // same definition as ffi::NulError and widestring::NulError<u16>
 #[derive(Clone, PartialEq, Eq, Debug)]

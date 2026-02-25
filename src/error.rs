@@ -1,5 +1,6 @@
-use crate::host_exit_code::HostExitCode;
 use std::io;
+
+use crate::host_exit_code::HostExitCode;
 
 quick_error! {
     /// An error struct encompassing all possible errors of this crate.

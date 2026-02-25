@@ -1,66 +1,70 @@
-use time::format_description::well_known::Iso8601;
-use time::macros::{date, time, format_description};
-use time::{OffsetDateTime, PrimitiveDateTime, UtcOffset};
+use jiff::fmt::temporal::SpanParser;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DateTime {
-    inner: OffsetDateTime,
+    inner: String,
 }
 
-#[allow(dead_code)] 
+#[allow(dead_code)]
 impl DateTime {
     pub fn parse(input: &str) -> Option<Self> {
-        // Try parsing as OffsetDateTime (with timezone)
-        if let Ok(inner) = OffsetDateTime::parse(input, &Iso8601::DEFAULT) {
-            return Some(Self { inner });
+        if input.parse::<jiff::Timestamp>().is_ok() {
+            return Some(Self {
+                inner: normalize_offset_datetime(input),
+            });
         }
-        
-        // If parsing without timezone, assume UTC (Offset +00:00)
-        let format = format_description!("[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond]");
-        if let Ok(primitive) = PrimitiveDateTime::parse(input, &format) {
-            let inner = primitive.assume_offset(UtcOffset::UTC);
-            return Some(Self { inner });
+
+        if input.parse::<jiff::civil::DateTime>().is_ok() {
+            return Some(Self {
+                inner: format!("{}+00:00", input),
+            });
         }
 
         None
     }
 
     pub fn format(&self) -> String {
-        let format = format_description!("[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:7][offset_hour sign:mandatory]:[offset_minute]");
-        self.inner.format(&format).unwrap()
+        self.inner.clone()
     }
 }
 
 impl Default for DateTime {
     fn default() -> Self {
-        let inner = OffsetDateTime::new_utc(date!(2000 - 01 - 01), time!(0:00));
-        DateTime { inner: inner }
+        DateTime {
+            inner: "2000-01-01T00:00:00.0000000+00:00".to_string(),
+        }
     }
 }
 
 pub fn parse_iso8601_duration(input: &str) -> Option<std::time::Duration> {
-    iso8601_duration::Duration::parse(input)
-        .ok()
-        .map(|x| x.to_std())
+    static PARSER: SpanParser = SpanParser::new();
+
+    PARSER.parse_unsigned_duration(input).ok()
+}
+
+fn normalize_offset_datetime(input: &str) -> String {
+    if let Some(without_zulu) = input.strip_suffix('Z') {
+        return format!("{}+00:00", without_zulu);
+    }
+    if let Some(without_zulu) = input.strip_suffix('z') {
+        return format!("{}+00:00", without_zulu);
+    }
+    input.to_string()
 }
 
 #[cfg(test)]
 mod pwsh {
-    use crate::time::parse_iso8601_duration;
-    use crate::time::DateTime;
+    use crate::time::{parse_iso8601_duration, DateTime};
 
     #[test]
     fn parse_duration() {
         // 0 seconds
-        assert_eq!(
-            parse_iso8601_duration("PT0S"),
-            Some(std::time::Duration::new(0, 0))
-        );
+        assert_eq!(parse_iso8601_duration("PT0S"), Some(std::time::Duration::new(0, 0)));
 
         // 9 seconds, 26.9026 milliseconds
         assert_eq!(
             parse_iso8601_duration("PT9.0269026S"),
-            Some(std::time::Duration::from_secs_f32(9.0269026))
+            Some(std::time::Duration::new(9, 26_902_600))
         );
     }
 
