@@ -399,4 +399,76 @@ mod pwsh {
 
         let _objs: Vec<CliObject> = parse_cli_xml(cmd_xml);
     }
+
+        #[test]
+        fn test_cli_xml_refs_containers_and_psrp_encoding() {
+                let xml = r#"<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04">
+    <Obj RefId="0">
+        <TN RefId="10">
+            <T>System.Management.Automation.PSCustomObject</T>
+            <T>System.Object</T>
+        </TN>
+        <MS>
+            <S N="Message">Line1_x000A_Line2</S>
+        </MS>
+    </Obj>
+    <Obj RefId="1">
+        <TNRef RefId="10" />
+        <MS>
+            <Ref N="Copy" RefId="0" />
+            <Obj N="Items" RefId="2">
+                <LST>
+                    <S>one</S>
+                    <S>two</S>
+                </LST>
+            </Obj>
+            <Obj N="Map" RefId="3">
+                <DCT>
+                    <En>
+                        <S N="Key">Order_x005f_x0020_</S>
+                        <I32 N="Value">7</I32>
+                    </En>
+                </DCT>
+            </Obj>
+        </MS>
+    </Obj>
+</Objs>"#;
+
+                let objs: Vec<CliObject> = parse_cli_xml(xml);
+                assert_eq!(objs.len(), 2);
+
+                let first = objs.get(0).unwrap();
+                assert_eq!(first.type_names.len(), 2);
+
+                let second = objs.get(1).unwrap();
+                assert_eq!(second.type_names, first.type_names);
+
+                let copy = second.values.get(0).unwrap();
+                assert!(copy.is_object());
+                let copy_obj = copy.as_object().unwrap();
+                assert_eq!(copy_obj.name.as_deref(), Some("Copy"));
+
+                let msg = copy_obj.values.get(0).unwrap();
+                assert!(msg.is_string());
+                assert_eq!(msg.get_name(), Some("Message"));
+                assert_eq!(msg.as_str(), Some("Line1\nLine2"));
+
+                let items = second.values.get(1).unwrap();
+                assert!(items.is_object());
+                let items_obj = items.as_object().unwrap();
+                assert_eq!(items_obj.name.as_deref(), Some("Items"));
+                assert_eq!(items_obj.values.len(), 2);
+                assert_eq!(items_obj.values.get(0).unwrap().as_str(), Some("one"));
+                assert_eq!(items_obj.values.get(1).unwrap().as_str(), Some("two"));
+
+                let map = second.values.get(2).unwrap();
+                assert!(map.is_object());
+                let map_obj = map.as_object().unwrap();
+                assert_eq!(map_obj.name.as_deref(), Some("Map"));
+                assert_eq!(map_obj.values.len(), 2);
+                assert_eq!(map_obj.values.get(0).unwrap().get_name(), Some("Key"));
+                assert_eq!(map_obj.values.get(0).unwrap().as_str(), Some("Order_x0020_"));
+                assert_eq!(map_obj.values.get(1).unwrap().get_name(), Some("Value"));
+                assert_eq!(map_obj.values.get(1).unwrap().as_i32(), Some(7));
+        }
 }
