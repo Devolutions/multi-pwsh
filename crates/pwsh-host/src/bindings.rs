@@ -307,7 +307,7 @@ impl PowerShell {
         }
     }
 
-    pub fn marshal_free_co_task_mem(&self, ptr: *mut libc::c_void) {
+    fn marshal_free_co_task_mem(&self, ptr: *mut libc::c_void) {
         unsafe {
             (self.inner.marshal_free_co_task_mem_fn)(ptr);
         }

@@ -5,6 +5,10 @@ edition = "2018"
 license = "MIT/Apache-2.0"
 description = "pwsh-compatible CLI backed by pwsh-host and hostfxr"
 
+[[bin]]
+name = "pwsh-host"
+path = "src/main.rs"
+
 [dependencies]
 pwsh-host = { path = "../pwsh-host" }
 base64 = "0.22"

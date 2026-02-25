@@ -63,9 +63,9 @@ fn parse_named_pipe_command_arg(args: &[OsString]) -> Result<Option<NamedPipeCom
             ));
         }
 
-        let value = args.get(index + 1).ok_or_else(|| {
-            NamedPipeCommandError::new("-NamedPipeCommand requires a named pipe value")
-        })?;
+        let value = args
+            .get(index + 1)
+            .ok_or_else(|| NamedPipeCommandError::new("-NamedPipeCommand requires a named pipe value"))?;
 
         if is_option_like(value.as_os_str()) {
             return Err(NamedPipeCommandError::new(
@@ -117,10 +117,7 @@ fn rewrite_with_encoded_command(args: &[OsString], named_pipe_index: usize, enco
 }
 
 fn encode_utf16le_base64(command: &str) -> String {
-    let bytes: Vec<u8> = command
-        .encode_utf16()
-        .flat_map(|value| value.to_le_bytes())
-        .collect();
+    let bytes: Vec<u8> = command.encode_utf16().flat_map(|value| value.to_le_bytes()).collect();
     BASE64_STANDARD.encode(bytes)
 }
 
@@ -167,10 +164,7 @@ fn read_named_pipe_command(pipe_name: &OsStr) -> Result<String, NamedPipeCommand
                 }
 
                 let command = String::from_utf8(bytes).map_err(|_| {
-                    NamedPipeCommandError::new(format!(
-                        "named pipe '{}' did not return valid UTF-8",
-                        pipe_path
-                    ))
+                    NamedPipeCommandError::new(format!("named pipe '{}' did not return valid UTF-8", pipe_path))
                 })?;
 
                 return Ok(command);
@@ -214,15 +208,7 @@ fn is_named_pipe_command_flag(arg: &OsStr) -> bool {
 fn is_command_source_flag(arg: &str) -> bool {
     matches!(
         arg,
-        "-encodedcommand"
-            | "-e"
-            | "-ec"
-            | "-command"
-            | "-c"
-            | "-file"
-            | "-f"
-            | "-commandwithargs"
-            | "-cwa"
+        "-encodedcommand" | "-e" | "-ec" | "-command" | "-c" | "-file" | "-f" | "-commandwithargs" | "-cwa"
     )
 }
 
@@ -254,12 +240,7 @@ mod tests {
 
     #[test]
     fn duplicate_named_pipe_flag_is_rejected() {
-        let args = os_args(&[
-            "-NamedPipeCommand",
-            "pipe1",
-            "-NamedPipeCommand",
-            "pipe2",
-        ]);
+        let args = os_args(&["-NamedPipeCommand", "pipe1", "-NamedPipeCommand", "pipe2"]);
         let error = parse_named_pipe_command_arg(&args).unwrap_err();
         assert!(error.to_string().contains("only be specified once"));
     }
