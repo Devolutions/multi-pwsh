@@ -7,6 +7,7 @@ mod host_detect;
 mod host_exit_code;
 mod hostfxr;
 mod loader;
+mod pwsh_cli;
 mod tests;
 mod time;
 
@@ -20,3 +21,6 @@ extern crate quick_error;
 /// Module for a platform dependent c-like string type.
 #[macro_use]
 mod pdcstring;
+
+pub use bindings::PowerShell;
+pub use pwsh_cli::run_pwsh_command_line;

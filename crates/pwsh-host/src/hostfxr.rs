@@ -1,5 +1,6 @@
 use std::borrow::BorrowMut;
 use std::ffi::OsStr;
+use std::io;
 
 use dlopen::wrapper::{Container, WrapperApi};
 
@@ -113,17 +114,33 @@ impl Hostfxr {
         &self,
         pwsh_path: impl AsRef<OsStr>,
     ) -> Result<HostfxrContext<'_, InitializedForCommandLine>, Box<dyn std::error::Error>> {
+        let args = &[PdCString::from_os_str(pwsh_path)?];
+        self.initialize_for_dotnet_command_line_args(args)
+    }
+
+    #[allow(dead_code)]
+    pub fn initialize_for_dotnet_command_line_args(
+        &self,
+        args: &[PdCString],
+    ) -> Result<HostfxrContext<'_, InitializedForCommandLine>, Box<dyn std::error::Error>> {
         use std::ptr;
 
         use crate::host_exit_code::HostExitCode;
 
-        let args = &[PdCString::from_os_str(pwsh_path)?];
+        if args.is_empty() {
+            return Err(Box::new(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "hostfxr command line requires at least the application path",
+            )));
+        }
+
+        let argv: Vec<*const char_t> = args.iter().map(|arg| arg.as_ptr()).collect();
         let mut host_context_handle = ptr::null::<Hostfxrhandle>() as Hostfxrhandle;
 
         let result = unsafe {
             self.lib.hostfxr_initialize_for_dotnet_command_line(
-                args.len() as i32,
-                args.as_ptr() as *const *const char_t,
+                argv.len() as i32,
+                argv.as_ptr(),
                 ptr::null(),
                 host_context_handle.borrow_mut() as *mut _ as Hostfxrhandle, //Initialise nullptr
             )
