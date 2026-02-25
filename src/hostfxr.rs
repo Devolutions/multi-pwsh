@@ -116,7 +116,7 @@ impl Hostfxr {
     pub fn initialize_for_dotnet_command_line(
         &self,
         pwsh_path: impl AsRef<OsStr>,
-    ) -> Result<HostfxrContext<InitializedForCommandLine>, Box<dyn std::error::Error>> {
+    ) -> Result<HostfxrContext<'_, InitializedForCommandLine>, Box<dyn std::error::Error>> {
         use crate::host_exit_code::HostExitCode;
         use std::ptr;
 
