@@ -49,20 +49,14 @@ fn unique_name(prefix: &str) -> String {
 }
 
 fn run_pwsh(args: &[OsString]) -> Output {
-    Command::new("pwsh")
-        .args(args)
-        .output()
-        .expect("failed to run pwsh")
+    Command::new("pwsh").args(args).output().expect("failed to run pwsh")
 }
 
 fn run_shim(args: &[OsString]) -> Output {
     let shim = find_shim_binary();
     assert!(shim.exists(), "missing shim binary at {}", shim.display());
 
-    Command::new(shim)
-        .args(args)
-        .output()
-        .expect("failed to run pwsh-host")
+    Command::new(shim).args(args).output().expect("failed to run pwsh-host")
 }
 
 fn assert_output_parity(expected: Output, actual: Output) {
@@ -100,9 +94,7 @@ fn spawn_pipe_server(pipe_name: &str, payload_utf8: &str, delay_ms: u32) -> Chil
 }
 
 fn assert_server_ok(server: Child) {
-    let output = server
-        .wait_with_output()
-        .expect("failed waiting for named pipe server");
+    let output = server.wait_with_output().expect("failed waiting for named pipe server");
     assert!(
         output.status.success(),
         "named pipe server failed: {}",
@@ -214,17 +206,15 @@ fn named_pipe_command_does_not_leak_secret_in_command_line() {
 
     sleep(Duration::from_millis(100));
 
-    let command_line = query_process_command_line(child.id())
-        .expect("failed to query shim command line while process is alive");
+    let command_line =
+        query_process_command_line(child.id()).expect("failed to query shim command line while process is alive");
     assert!(
         !command_line.contains(&secret),
         "command line leaked secret: {}",
         command_line
     );
 
-    let output = child
-        .wait_with_output()
-        .expect("failed waiting for shim process");
+    let output = child.wait_with_output().expect("failed waiting for shim process");
     assert_server_ok(server);
 
     assert_eq!(output.status.code(), Some(0));

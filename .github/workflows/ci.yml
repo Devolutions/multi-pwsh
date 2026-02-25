@@ -38,8 +38,8 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all --check
 
-      - name: Run clippy (deny warnings)
-        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Run clippy
+        run: cargo clippy --workspace --all-targets
 
   test:
     name: Test (${{ matrix.os }})

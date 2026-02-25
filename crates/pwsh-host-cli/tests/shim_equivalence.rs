@@ -230,9 +230,7 @@ fn stdin_driven_modes_match_pwsh() {
 
 #[test]
 fn file_mode_and_exit_codes_match_pwsh() {
-    let (_dir, script_path) = create_temp_script(
-        "param([string]$Name, [switch]$All)\n\"name=$Name all=$All\"\n",
-    );
+    let (_dir, script_path) = create_temp_script("param([string]$Name, [switch]$All)\n\"name=$Name all=$All\"\n");
 
     assert_invocation_matches(
         &[
