@@ -33,10 +33,10 @@ dotnet list dotnet/Bindings.csproj package --vulnerable --include-transitive
 
 ## Project map
 
-- `src/bindings.rs`: Rust FFI surface over .NET unmanaged entry points.
+- `crates/pwsh-host/src/bindings.rs`: Rust FFI surface over .NET unmanaged entry points.
 - `dotnet/Bindings.cs`: Unmanaged-callable C# methods around `System.Management.Automation.PowerShell`.
-- `src/cli_xml.rs`: CLIXML parsing helpers.
-- `src/tests.rs`: behavior and integration tests used as usage references.
+- `crates/pwsh-host/src/cli_xml.rs`: CLIXML parsing helpers.
+- `crates/pwsh-host/src/tests.rs`: behavior and integration tests used as usage references.
 
 ## Editing conventions
 
