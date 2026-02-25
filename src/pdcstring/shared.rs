@@ -1,11 +1,10 @@
+use std::borrow::Borrow;
+use std::convert::TryFrom;
+use std::fmt::{self, Debug, Display, Formatter};
+use std::ops::Deref;
+use std::str::FromStr;
+
 use super::{NulError, PdCStrInner, PdCStringInner, PdUChar};
-use std::{
-    borrow::Borrow,
-    convert::TryFrom,
-    fmt::{self, Debug, Display, Formatter},
-    ops::Deref,
-    str::FromStr,
-};
 
 /// A platform-dependent c-like string type for interacting with the hostfxr API.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]

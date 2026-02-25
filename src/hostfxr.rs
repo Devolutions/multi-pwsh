@@ -1,9 +1,11 @@
+use std::borrow::BorrowMut;
+use std::ffi::OsStr;
+
+use dlopen::wrapper::{Container, WrapperApi};
+
 use crate::context::{HostfxrContext, HostfxrHandle, InitializedForCommandLine};
 use crate::host_detect::pwsh_host_detect;
 use crate::pdcstring::{PdCStr, PdCString};
-use dlopen::wrapper::{Container, WrapperApi};
-use std::borrow::BorrowMut;
-use std::ffi::OsStr;
 
 #[cfg(windows)]
 #[allow(non_camel_case_types)]
@@ -50,16 +52,10 @@ pub struct HostfxrLib {
         parameters: *const HostfxrInitializeParameters,
         host_context_handle: *mut Hostfxrhandle,
     ) -> i32,
-    hostfxr_get_runtime_property_value: unsafe extern "C" fn(
-        host_context_handle: Hostfxrhandle,
-        name: *const char_t,
-        value: *mut *const char_t,
-    ) -> i32,
-    hostfxr_set_runtime_property_value: unsafe extern "C" fn(
-        host_context_handle: Hostfxrhandle,
-        name: *const char_t,
-        value: *const char_t,
-    ) -> i32,
+    hostfxr_get_runtime_property_value:
+        unsafe extern "C" fn(host_context_handle: Hostfxrhandle, name: *const char_t, value: *mut *const char_t) -> i32,
+    hostfxr_set_runtime_property_value:
+        unsafe extern "C" fn(host_context_handle: Hostfxrhandle, name: *const char_t, value: *const char_t) -> i32,
     hostfxr_get_runtime_properties: unsafe extern "C" fn(
         host_context_handle: Hostfxrhandle,
         count: *mut libc::size_t,
@@ -117,8 +113,9 @@ impl Hostfxr {
         &self,
         pwsh_path: impl AsRef<OsStr>,
     ) -> Result<HostfxrContext<'_, InitializedForCommandLine>, Box<dyn std::error::Error>> {
-        use crate::host_exit_code::HostExitCode;
         use std::ptr;
+
+        use crate::host_exit_code::HostExitCode;
 
         let args = &[PdCString::from_os_str(pwsh_path)?];
         let mut host_context_handle = ptr::null::<Hostfxrhandle>() as Hostfxrhandle;

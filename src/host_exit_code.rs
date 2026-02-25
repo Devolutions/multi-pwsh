@@ -1,9 +1,9 @@
-use crate::error::Error;
+use std::convert::{TryFrom, TryInto};
+use std::num::TryFromIntError;
+
 use num_enum::TryFromPrimitive;
-use std::{
-    convert::{TryFrom, TryInto},
-    num::TryFromIntError,
-};
+
+use crate::error::Error;
 /// The special error or exit codes for hostfxr operations.
 ///
 /// Source: [https://github.com/dotnet/runtime/blob/main/docs/design/features/host-error-codes.md](https://github.com/dotnet/runtime/blob/main/docs/design/features/host-error-codes.md)

@@ -5,7 +5,7 @@ pub struct DateTime {
     inner: String,
 }
 
-#[allow(dead_code)] 
+#[allow(dead_code)]
 impl DateTime {
     pub fn parse(input: &str) -> Option<Self> {
         if input.parse::<jiff::Timestamp>().is_ok() {
@@ -54,16 +54,12 @@ fn normalize_offset_datetime(input: &str) -> String {
 
 #[cfg(test)]
 mod pwsh {
-    use crate::time::parse_iso8601_duration;
-    use crate::time::DateTime;
+    use crate::time::{parse_iso8601_duration, DateTime};
 
     #[test]
     fn parse_duration() {
         // 0 seconds
-        assert_eq!(
-            parse_iso8601_duration("PT0S"),
-            Some(std::time::Duration::new(0, 0))
-        );
+        assert_eq!(parse_iso8601_duration("PT0S"), Some(std::time::Duration::new(0, 0)));
 
         // 9 seconds, 26.9026 milliseconds
         assert_eq!(

@@ -1,15 +1,16 @@
 #![allow(dead_code)]
 
-use crate::time::parse_iso8601_duration;
-use crate::time::DateTime;
+use std::collections::HashMap;
+use std::time::Duration;
+
 use decimal::d128;
 use quick_xml::events;
 use quick_xml::events::Event;
 use quick_xml::reader::Reader;
-use std::collections::HashMap;
-use std::time::Duration;
 use url::Url;
 use uuid::Uuid;
+
+use crate::time::{parse_iso8601_duration, DateTime};
 
 // [MS-PSRP]: PowerShell Remoting Protocol
 // https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp
@@ -1323,11 +1324,7 @@ pub fn parse_cli_xml(cli_xml: &str) -> Vec<CliObject> {
             },
             Ok(Event::Text(_event)) => {}
             Ok(Event::Eof) => break,
-            Err(event) => panic!(
-                "Error at position {}: {:?}",
-                reader.buffer_position(),
-                event
-            ),
+            Err(event) => panic!("Error at position {}: {:?}", reader.buffer_position(), event),
             _ => (),
         }
     }

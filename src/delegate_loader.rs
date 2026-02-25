@@ -1,12 +1,12 @@
+use core::ptr;
+use std::borrow::BorrowMut;
+
 use crate::error::Error;
 use crate::host_exit_code::HostExitCode;
 use crate::hostfxr::{
-    char_t, GetFunctionPointerFn, LoadAssemblyAndGetFunctionPointerFn,
-    UNMANAGED_CALLERS_ONLY_METHOD,
+    char_t, GetFunctionPointerFn, LoadAssemblyAndGetFunctionPointerFn, UNMANAGED_CALLERS_ONLY_METHOD,
 };
 use crate::pdcstring::PdCStr;
-use core::ptr;
-use std::borrow::BorrowMut;
 
 #[derive(Copy, Clone)]
 pub struct DelegateLoader {
@@ -132,10 +132,7 @@ pub struct AssemblyDelegateLoader<A: AsRef<PdCStr>> {
 
 impl<A: AsRef<PdCStr>> AssemblyDelegateLoader<A> {
     pub fn new(loader: DelegateLoader, assembly_path: A) -> Self {
-        Self {
-            loader,
-            assembly_path,
-        }
+        Self { loader, assembly_path }
     }
 
     #[allow(dead_code)]

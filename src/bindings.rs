@@ -1,11 +1,12 @@
 #![allow(dead_code)]
 
+use std::ffi::{CStr, CString};
+
 use crate::delegate_loader::{AssemblyDelegateLoader, MethodWithUnknownSignature};
 use crate::error::Error;
 use crate::loader::get_assembly_delegate_loader;
 use crate::pdcstr;
 use crate::pdcstring::{PdCStr, PdCString};
-use std::ffi::{CStr, CString};
 
 pub type PowerShellHandle = *mut libc::c_void;
 
@@ -14,11 +15,8 @@ pub type FnPowerShellCreate = unsafe extern "system" fn() -> PowerShellHandle;
 pub type FnPowerShellAddArgumentString =
     unsafe extern "system" fn(handle: PowerShellHandle, argument: *const libc::c_char);
 
-pub type FnPowerShellAddParameterString = unsafe extern "system" fn(
-    handle: PowerShellHandle,
-    name: *const libc::c_char,
-    value: *const libc::c_char,
-);
+pub type FnPowerShellAddParameterString =
+    unsafe extern "system" fn(handle: PowerShellHandle, name: *const libc::c_char, value: *const libc::c_char);
 
 pub type FnPowerShellAddParameterInt =
     unsafe extern "system" fn(handle: PowerShellHandle, name: *const libc::c_char, value: i32);
@@ -26,33 +24,24 @@ pub type FnPowerShellAddParameterInt =
 pub type FnPowerShellAddParameterLong =
     unsafe extern "system" fn(handle: PowerShellHandle, name: *const libc::c_char, value: i64);
 
-pub type FnPowerShellAddCommand =
-    unsafe extern "system" fn(handle: PowerShellHandle, command: *const libc::c_char);
+pub type FnPowerShellAddCommand = unsafe extern "system" fn(handle: PowerShellHandle, command: *const libc::c_char);
 
-pub type FnPowerShellAddScript =
-    unsafe extern "system" fn(handle: PowerShellHandle, script: *const libc::c_char);
+pub type FnPowerShellAddScript = unsafe extern "system" fn(handle: PowerShellHandle, script: *const libc::c_char);
 
-pub type FnPowerShellAddStatement =
-    unsafe extern "system" fn(handle: PowerShellHandle) -> PowerShellHandle;
+pub type FnPowerShellAddStatement = unsafe extern "system" fn(handle: PowerShellHandle) -> PowerShellHandle;
 
 pub type FnPowerShellInvoke = unsafe extern "system" fn(handle: PowerShellHandle);
 
 pub type FnPowerShellClear = unsafe extern "system" fn(handle: PowerShellHandle);
 
-pub type FnPowerShellExportToXml = unsafe extern "system" fn(
-    handle: PowerShellHandle,
-    name: *const libc::c_char,
-) -> *const libc::c_char;
+pub type FnPowerShellExportToXml =
+    unsafe extern "system" fn(handle: PowerShellHandle, name: *const libc::c_char) -> *const libc::c_char;
 
-pub type FnPowerShellExportToJson = unsafe extern "system" fn(
-    handle: PowerShellHandle,
-    name: *const libc::c_char,
-) -> *const libc::c_char;
+pub type FnPowerShellExportToJson =
+    unsafe extern "system" fn(handle: PowerShellHandle, name: *const libc::c_char) -> *const libc::c_char;
 
-pub type FnPowerShellExportToString = unsafe extern "system" fn(
-    handle: PowerShellHandle,
-    name: *const libc::c_char,
-) -> *const libc::c_char;
+pub type FnPowerShellExportToString =
+    unsafe extern "system" fn(handle: PowerShellHandle, name: *const libc::c_char) -> *const libc::c_char;
 
 pub type FnMarshalFreeCoTaskMem = unsafe extern "system" fn(ptr: *mut libc::c_void);
 
@@ -232,11 +221,7 @@ impl PowerShell {
         let name_cstr = CString::new(name).unwrap();
         let value_cstr = CString::new(value).unwrap();
         unsafe {
-            (self.inner.add_parameter_string_fn)(
-                self.handle,
-                name_cstr.as_ptr(),
-                value_cstr.as_ptr(),
-            );
+            (self.inner.add_parameter_string_fn)(self.handle, name_cstr.as_ptr(), value_cstr.as_ptr());
         }
     }
 
