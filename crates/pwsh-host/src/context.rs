@@ -100,3 +100,10 @@ impl<'a, I> HostfxrContext<'a, I> {
             .map(|loader| AssemblyDelegateLoader::new(loader, assembly_path))
     }
 }
+
+impl<'a> HostfxrContext<'a, InitializedForCommandLine> {
+    #[allow(dead_code)]
+    pub fn run_app(&self) -> i32 {
+        self.hostfxr.run_app(self.handle.as_raw())
+    }
+}

@@ -5,6 +5,8 @@ use std::process::Command;
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let mut dotnet_source_dir = manifest_dir.clone();
+    dotnet_source_dir.push("..");
+    dotnet_source_dir.push("..");
     dotnet_source_dir.push("dotnet");
 
     let _output = Command::new("dotnet")
