@@ -1,0 +1,22 @@
+[package]
+name = "multi-pwsh"
+version = "0.4.0"
+edition = "2018"
+license = "MIT/Apache-2.0"
+description = "Install and update side-by-side PowerShell versions in user context"
+
+[[bin]]
+name = "multi-pwsh"
+path = "src/main.rs"
+
+[dependencies]
+thiserror = "1.0"
+ureq = { version = "2.12", default-features = false, features = ["tls", "native-certs"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+semver = "1.0"
+flate2 = "1.0"
+tar = "0.4"
+zip = { version = "0.6", default-features = false, features = ["deflate"] }
+home = "0.5"
+tempfile = "3.12"
