@@ -149,11 +149,8 @@ impl PowerShell {
         unsafe {
             let property_name_cstr = CString::new(property_name).unwrap();
             let value_json_cstr = CString::new(value_json).unwrap();
-            let cstr_ptr = (self.inner.set_property_json_fn)(
-                self.handle,
-                property_name_cstr.as_ptr(),
-                value_json_cstr.as_ptr(),
-            );
+            let cstr_ptr =
+                (self.inner.set_property_json_fn)(self.handle, property_name_cstr.as_ptr(), value_json_cstr.as_ptr());
             let cstr = CStr::from_ptr(cstr_ptr);
             let rstr = String::from_utf8_lossy(cstr.to_bytes()).to_string();
             self.marshal_free_co_task_mem(cstr_ptr as *mut libc::c_void);
@@ -165,7 +162,8 @@ impl PowerShell {
         unsafe {
             let member_name_cstr = CString::new(member_name).unwrap();
             let arguments_json_cstr = CString::new(arguments_json).unwrap();
-            let cstr_ptr = (self.inner.invoke_static_member_json_fn)(member_name_cstr.as_ptr(), arguments_json_cstr.as_ptr());
+            let cstr_ptr =
+                (self.inner.invoke_static_member_json_fn)(member_name_cstr.as_ptr(), arguments_json_cstr.as_ptr());
             let cstr = CStr::from_ptr(cstr_ptr);
             let rstr = String::from_utf8_lossy(cstr.to_bytes()).to_string();
             self.marshal_free_co_task_mem(cstr_ptr as *mut libc::c_void);

@@ -69,7 +69,8 @@ mod pwsh {
             .find("<ToString>System.Management.Automation.VerbInfo</ToString>")
             .is_some());
 
-        let add_script = pwsh.invoke_member_json("AddScript", "[\"'hello-generic' | Set-Variable -Name GenericValue\"]");
+        let add_script =
+            pwsh.invoke_member_json("AddScript", "[\"'hello-generic' | Set-Variable -Name GenericValue\"]");
         assert!(add_script.contains("\"ok\":true"));
 
         let add_statement_result = pwsh.invoke_member_json("AddStatement", "[]");
