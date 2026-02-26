@@ -119,5 +119,6 @@ assert_eq!(date_json, "\"2019-12-31T19:00:00-05:00\"");
 
 ## Notes
 
-- The .NET bindings package currently uses `Microsoft.PowerShell.SDK` `7.2.24` for compatibility with this repository’s interop layer.
+- The unmanaged bindings function-table contract is versioned as `PS74` (for PowerShell 7.4 on .NET 8 LTS).
+- The .NET bindings package baseline uses `Microsoft.PowerShell.SDK` `7.4.13`, and should track the latest compatible `7.4.x` patch.
 - `dotnet/Bindings.csproj` enables `UseRidGraph` to keep runtime-identifier compatibility under .NET 8.

@@ -28,7 +28,7 @@ pub type FnPowerShellAddCommand = unsafe extern "system" fn(handle: PowerShellHa
 
 pub type FnPowerShellAddScript = unsafe extern "system" fn(handle: PowerShellHandle, script: *const libc::c_char);
 
-pub type FnPowerShellAddStatement = unsafe extern "system" fn(handle: PowerShellHandle) -> PowerShellHandle;
+pub type FnPowerShellAddStatement = unsafe extern "system" fn(handle: PowerShellHandle);
 
 pub type FnPowerShellInvoke = unsafe extern "system" fn(handle: PowerShellHandle);
 
@@ -44,6 +44,27 @@ pub type FnPowerShellExportToString =
     unsafe extern "system" fn(handle: PowerShellHandle, name: *const libc::c_char) -> *const libc::c_char;
 
 pub type FnMarshalFreeCoTaskMem = unsafe extern "system" fn(ptr: *mut libc::c_void);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct ApiPs74 {
+    pub create_fn: *const libc::c_void,
+    pub add_argument_string_fn: *const libc::c_void,
+    pub add_parameter_string_fn: *const libc::c_void,
+    pub add_parameter_int_fn: *const libc::c_void,
+    pub add_parameter_long_fn: *const libc::c_void,
+    pub add_command_fn: *const libc::c_void,
+    pub add_script_fn: *const libc::c_void,
+    pub add_statement_fn: *const libc::c_void,
+    pub invoke_fn: *const libc::c_void,
+    pub clear_fn: *const libc::c_void,
+    pub export_to_xml_fn: *const libc::c_void,
+    pub export_to_json_fn: *const libc::c_void,
+    pub export_to_string_fn: *const libc::c_void,
+    pub marshal_free_co_task_mem_fn: *const libc::c_void,
+}
+
+pub type FnBindingsGetApiPs74 = unsafe extern "system" fn() -> *const ApiPs74;
 
 struct Bindings {
     create_fn: FnPowerShellCreate,
@@ -77,119 +98,36 @@ impl Bindings {
             fn_loader.get_function_pointer_for_unmanaged_callers_only_method(type_name, method_name)
         }
 
+        let get_api_ps74_fn: FnBindingsGetApiPs74 = {
+            let fn_ptr = get_function_pointer(
+                fn_loader,
+                pdcstr!("NativeHost.Bindings, Bindings"),
+                pdcstr!("Bindings_GetApiPS74"),
+            )?;
+            unsafe { std::mem::transmute(fn_ptr) }
+        };
+
+        let api = unsafe {
+            let api_ptr = get_api_ps74_fn();
+            assert!(!api_ptr.is_null());
+            *api_ptr
+        };
+
         let pwsh = Self {
-            create_fn: {
-                let fn_ptr = get_function_pointer(
-                    fn_loader,
-                    pdcstr!("NativeHost.Bindings, Bindings"),
-                    pdcstr!("PowerShell_Create"),
-                )?;
-                unsafe { std::mem::transmute(fn_ptr) }
-            },
-            add_argument_string_fn: {
-                let fn_ptr = get_function_pointer(
-                    fn_loader,
-                    pdcstr!("NativeHost.Bindings, Bindings"),
-                    pdcstr!("PowerShell_AddArgument_String"),
-                )?;
-                unsafe { std::mem::transmute(fn_ptr) }
-            },
-            add_parameter_string_fn: {
-                let fn_ptr = get_function_pointer(
-                    fn_loader,
-                    pdcstr!("NativeHost.Bindings, Bindings"),
-                    pdcstr!("PowerShell_AddParameter_String"),
-                )?;
-                unsafe { std::mem::transmute(fn_ptr) }
-            },
-            add_parameter_int_fn: {
-                let fn_ptr = get_function_pointer(
-                    fn_loader,
-                    pdcstr!("NativeHost.Bindings, Bindings"),
-                    pdcstr!("PowerShell_AddParameter_Int"),
-                )?;
-                unsafe { std::mem::transmute(fn_ptr) }
-            },
-            add_parameter_long_fn: {
-                let fn_ptr = get_function_pointer(
-                    fn_loader,
-                    pdcstr!("NativeHost.Bindings, Bindings"),
-                    pdcstr!("PowerShell_AddParameter_Long"),
-                )?;
-                unsafe { std::mem::transmute(fn_ptr) }
-            },
-            add_command_fn: {
-                let fn_ptr = get_function_pointer(
-                    fn_loader,
-                    pdcstr!("NativeHost.Bindings, Bindings"),
-                    pdcstr!("PowerShell_AddCommand"),
-                )?;
-                unsafe { std::mem::transmute(fn_ptr) }
-            },
-            add_script_fn: {
-                let fn_ptr = get_function_pointer(
-                    fn_loader,
-                    pdcstr!("NativeHost.Bindings, Bindings"),
-                    pdcstr!("PowerShell_AddScript"),
-                )?;
-                unsafe { std::mem::transmute(fn_ptr) }
-            },
-            add_statement_fn: {
-                let fn_ptr = get_function_pointer(
-                    fn_loader,
-                    pdcstr!("NativeHost.Bindings, Bindings"),
-                    pdcstr!("PowerShell_AddStatement"),
-                )?;
-                unsafe { std::mem::transmute(fn_ptr) }
-            },
-            invoke_fn: {
-                let fn_ptr = get_function_pointer(
-                    fn_loader,
-                    pdcstr!("NativeHost.Bindings, Bindings"),
-                    pdcstr!("PowerShell_Invoke"),
-                )?;
-                unsafe { std::mem::transmute(fn_ptr) }
-            },
-            clear_fn: {
-                let fn_ptr = get_function_pointer(
-                    fn_loader,
-                    pdcstr!("NativeHost.Bindings, Bindings"),
-                    pdcstr!("PowerShell_Clear"),
-                )?;
-                unsafe { std::mem::transmute(fn_ptr) }
-            },
-            export_to_xml_fn: {
-                let fn_ptr = get_function_pointer(
-                    fn_loader,
-                    pdcstr!("NativeHost.Bindings, Bindings"),
-                    pdcstr!("PowerShell_ExportToXml"),
-                )?;
-                unsafe { std::mem::transmute(fn_ptr) }
-            },
-            export_to_json_fn: {
-                let fn_ptr = get_function_pointer(
-                    fn_loader,
-                    pdcstr!("NativeHost.Bindings, Bindings"),
-                    pdcstr!("PowerShell_ExportToJson"),
-                )?;
-                unsafe { std::mem::transmute(fn_ptr) }
-            },
-            export_to_string_fn: {
-                let fn_ptr = get_function_pointer(
-                    fn_loader,
-                    pdcstr!("NativeHost.Bindings, Bindings"),
-                    pdcstr!("PowerShell_ExportToString"),
-                )?;
-                unsafe { std::mem::transmute(fn_ptr) }
-            },
-            marshal_free_co_task_mem_fn: {
-                let fn_ptr = get_function_pointer(
-                    fn_loader,
-                    pdcstr!("NativeHost.Bindings, Bindings"),
-                    pdcstr!("Marshal_FreeCoTaskMem"),
-                )?;
-                unsafe { std::mem::transmute(fn_ptr) }
-            },
+            create_fn: unsafe { std::mem::transmute(api.create_fn) },
+            add_argument_string_fn: unsafe { std::mem::transmute(api.add_argument_string_fn) },
+            add_parameter_string_fn: unsafe { std::mem::transmute(api.add_parameter_string_fn) },
+            add_parameter_int_fn: unsafe { std::mem::transmute(api.add_parameter_int_fn) },
+            add_parameter_long_fn: unsafe { std::mem::transmute(api.add_parameter_long_fn) },
+            add_command_fn: unsafe { std::mem::transmute(api.add_command_fn) },
+            add_script_fn: unsafe { std::mem::transmute(api.add_script_fn) },
+            add_statement_fn: unsafe { std::mem::transmute(api.add_statement_fn) },
+            invoke_fn: unsafe { std::mem::transmute(api.invoke_fn) },
+            clear_fn: unsafe { std::mem::transmute(api.clear_fn) },
+            export_to_xml_fn: unsafe { std::mem::transmute(api.export_to_xml_fn) },
+            export_to_json_fn: unsafe { std::mem::transmute(api.export_to_json_fn) },
+            export_to_string_fn: unsafe { std::mem::transmute(api.export_to_string_fn) },
+            marshal_free_co_task_mem_fn: unsafe { std::mem::transmute(api.marshal_free_co_task_mem_fn) },
         };
         Ok(pwsh)
     }
