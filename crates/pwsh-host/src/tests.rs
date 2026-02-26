@@ -88,7 +88,9 @@ mod pwsh {
         assert!(create_static.contains("\"kind\":\"handle\""));
 
         if let Some(handle_value) = extract_handle_value(&create_static) {
-            pwsh.free_handle(handle_value as *mut libc::c_void);
+            unsafe {
+                pwsh.free_handle(handle_value as *mut libc::c_void);
+            }
         }
     }
 

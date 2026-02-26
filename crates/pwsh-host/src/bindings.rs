@@ -171,7 +171,7 @@ impl PowerShell {
         }
     }
 
-    pub fn free_handle(&self, handle: PowerShellHandle) {
+    pub unsafe fn free_handle(&self, handle: PowerShellHandle) {
         unsafe {
             (self.inner.gc_handle_free_fn)(handle);
         }

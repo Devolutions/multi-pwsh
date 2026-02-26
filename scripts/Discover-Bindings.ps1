@@ -20,8 +20,8 @@ function ConvertTo-SnakeCase {
         [string]$Value
     )
 
-    $withUnderscore = $Value -replace '([A-Z]+)([A-Z][a-z])', '$1_$2'
-    $withUnderscore = $withUnderscore -replace '([a-z0-9])([A-Z])', '$1_$2'
+    $withUnderscore = $Value -creplace '([A-Z]+)([A-Z][a-z])', '$1_$2'
+    $withUnderscore = $withUnderscore -creplace '([a-z0-9])([A-Z])', '$1_$2'
     $withUnderscore = $withUnderscore -replace '[^A-Za-z0-9]+', '_'
     $withUnderscore.Trim('_').ToLowerInvariant()
 }
