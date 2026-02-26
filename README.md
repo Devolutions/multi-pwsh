@@ -6,6 +6,7 @@ Rust PowerShell hosting library that loads .NET delegates and drives `System.Man
 
 - `crates/pwsh-host` – Rust library crate
 - `crates/pwsh-host-cli` – Rust CLI crate
+- `crates/multi-pwsh` – Rust tool to install/update side-by-side `pwsh` versions
 - `dotnet` – unmanaged-callable .NET bindings project
 
 ## Origin
@@ -48,6 +49,15 @@ cargo build --all-targets
 dotnet build pwsh-host-rs.sln
 ```
 
+## Build smaller release binaries
+
+The default `release` profile is tuned for smaller binaries. Build `pwsh-host-cli` and `multi-pwsh` with:
+
+```powershell
+cargo build --release -p pwsh-host-cli --bin pwsh-host
+cargo build --release -p multi-pwsh --bin multi-pwsh
+```
+
 If PowerShell 7.4 is not in `PATH`, pass it explicitly:
 
 ```powershell
@@ -73,6 +83,36 @@ dotnet build pwsh-host-rs.sln -p:PwshExePath="C:\Program Files\PowerShell\7.4\pw
 ```powershell
 cargo run -p pwsh-host-cli --bin pwsh-host -- -NoLogo -NoProfile -Command "$PSVersionTable.PSVersion"
 ```
+
+## Manage side-by-side PowerShell installs with `multi-pwsh`
+
+`multi-pwsh` downloads official PowerShell release archives from GitHub and installs them under the current user profile (no package manager or system installer required).
+
+- Install root: `~/.pwsh`
+- Per-version location: `~/.pwsh/<version>` (example: `~/.pwsh/7.4.13`)
+- Alias location: `~/.pwsh/bin`
+- Alias format: `pwsh-<major.minor>` (example: `pwsh-7.4`)
+
+Examples:
+
+```powershell
+# Install exact version and update pwsh-7.4 alias
+cargo run -p multi-pwsh -- install 7.4.13
+
+# Install latest patch in a line and update alias
+cargo run -p multi-pwsh -- install 7.4
+
+# Update an existing line alias to the newest available patch
+cargo run -p multi-pwsh -- update 7.4
+
+# Show installed versions and alias mapping metadata
+cargo run -p multi-pwsh -- list
+
+# Repair/regenerate aliases from metadata (useful after upgrading older aliases)
+cargo run -p multi-pwsh -- doctor --repair-aliases
+```
+
+`multi-pwsh` does not modify PATH automatically. Add `~/.pwsh/bin` to PATH once in your shell profile to make aliases discoverable.
 
 ## `-NamedPipeCommand` (Windows)
 
@@ -133,6 +173,7 @@ assert_eq!(date_json, "\"2019-12-31T19:00:00-05:00\"");
 - `crates/pwsh-host/` – Rust host library crate
 - `crates/pwsh-host/src/` – hostfxr interop, delegate loading, CLIXML parsing, tests
 - `crates/pwsh-host-cli/` – Rust CLI crate that runs `pwsh.dll` through hostfxr command-line initialization
+- `crates/multi-pwsh/` – Rust side-by-side PowerShell installer/updater and alias manager
 - `dotnet/` – .NET unmanaged-callable bindings
 - `global.json` – pinned .NET SDK version
 - `pwsh-host-rs.sln` – .NET solution for bindings

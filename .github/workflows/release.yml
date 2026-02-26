@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag to build/publish (for example v0.1.0)
+        description: Release tag to build/publish (for example v0.4.0)
         required: true
         type: string
 
@@ -22,38 +22,50 @@ jobs:
           - name: linux-x64
             os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            archive: pwsh-host-linux-x64.zip
-            binary: pwsh-host
+            host_archive: pwsh-host-linux-x64.zip
+            host_binary: pwsh-host
+            multi_archive: pwsh-multi-linux-x64.zip
+            multi_binary: multi-pwsh
 
           - name: linux-arm64
             os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
-            archive: pwsh-host-linux-arm64.zip
-            binary: pwsh-host
+            host_archive: pwsh-host-linux-arm64.zip
+            host_binary: pwsh-host
+            multi_archive: pwsh-multi-linux-arm64.zip
+            multi_binary: multi-pwsh
 
           - name: windows-x64
             os: windows-latest
             target: x86_64-pc-windows-msvc
-            archive: pwsh-host-windows-x64.zip
-            binary: pwsh-host.exe
+            host_archive: pwsh-host-windows-x64.zip
+            host_binary: pwsh-host.exe
+            multi_archive: pwsh-multi-windows-x64.zip
+            multi_binary: multi-pwsh.exe
 
           - name: windows-arm64
             os: windows-latest
             target: aarch64-pc-windows-msvc
-            archive: pwsh-host-windows-arm64.zip
-            binary: pwsh-host.exe
+            host_archive: pwsh-host-windows-arm64.zip
+            host_binary: pwsh-host.exe
+            multi_archive: pwsh-multi-windows-arm64.zip
+            multi_binary: multi-pwsh.exe
 
           - name: macos-x64
             os: macos-14
             target: x86_64-apple-darwin
-            archive: pwsh-host-macos-x64.zip
-            binary: pwsh-host
+            host_archive: pwsh-host-macos-x64.zip
+            host_binary: pwsh-host
+            multi_archive: pwsh-multi-macos-x64.zip
+            multi_binary: multi-pwsh
 
           - name: macos-arm64
             os: macos-14
             target: aarch64-apple-darwin
-            archive: pwsh-host-macos-arm64.zip
-            binary: pwsh-host
+            host_archive: pwsh-host-macos-arm64.zip
+            host_binary: pwsh-host
+            multi_archive: pwsh-multi-macos-arm64.zip
+            multi_binary: multi-pwsh
 
     steps:
       - name: Checkout
@@ -90,54 +102,72 @@ jobs:
         run: |
           "RUSTFLAGS=-C target-feature=+crt-static" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Build binary
+      - name: Build binaries
         shell: pwsh
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
         run: |
           cargo build --locked --release --package pwsh-host-cli --bin pwsh-host --target "${{ matrix.target }}"
+          cargo build --locked --release --package multi-pwsh --bin multi-pwsh --target "${{ matrix.target }}"
 
-      - name: Package artifact
+      - name: Package artifacts
         shell: pwsh
         env:
           TARGET: ${{ matrix.target }}
-          BIN_NAME: ${{ matrix.binary }}
-          ARCHIVE_NAME: ${{ matrix.archive }}
+          HOST_BIN_NAME: ${{ matrix.host_binary }}
+          HOST_ARCHIVE_NAME: ${{ matrix.host_archive }}
+          MULTI_BIN_NAME: ${{ matrix.multi_binary }}
+          MULTI_ARCHIVE_NAME: ${{ matrix.multi_archive }}
         run: |
           $target = $env:TARGET
-          $binName = $env:BIN_NAME
-          $archiveName = $env:ARCHIVE_NAME
-
-          $binaryPath = [System.IO.Path]::Combine("target", $target, "release", $binName)
-          if (-not (Test-Path -Path $binaryPath)) {
-            throw "Binary not found: $binaryPath"
-          }
-
-          if (Test-Path -Path $archiveName) {
-            Remove-Item -Path $archiveName -Force
-          }
-
           Add-Type -AssemblyName System.IO.Compression.FileSystem
-          $archive = [System.IO.Compression.ZipFile]::Open($archiveName, [System.IO.Compression.ZipArchiveMode]::Create)
-          try {
-            [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
-              $archive,
-              $binaryPath,
-              $binName,
-              [System.IO.Compression.CompressionLevel]::Optimal
-            ) | Out-Null
-          }
-          finally {
-            $archive.Dispose()
+
+          function New-BinaryArchive {
+            param(
+              [string]$BinaryName,
+              [string]$ArchiveName
+            )
+
+            $binaryPath = [System.IO.Path]::Combine("target", $target, "release", $BinaryName)
+            if (-not (Test-Path -Path $binaryPath)) {
+              throw "Binary not found: $binaryPath"
+            }
+
+            if (Test-Path -Path $ArchiveName) {
+              Remove-Item -Path $ArchiveName -Force
+            }
+
+            $archive = [System.IO.Compression.ZipFile]::Open($ArchiveName, [System.IO.Compression.ZipArchiveMode]::Create)
+            try {
+              [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+                $archive,
+                $binaryPath,
+                $BinaryName,
+                [System.IO.Compression.CompressionLevel]::Optimal
+              ) | Out-Null
+            }
+            finally {
+              $archive.Dispose()
+            }
+
+            Write-Host "Created $ArchiveName"
           }
 
-          Write-Host "Created $archiveName"
+          New-BinaryArchive -BinaryName $env:HOST_BIN_NAME -ArchiveName $env:HOST_ARCHIVE_NAME
+          New-BinaryArchive -BinaryName $env:MULTI_BIN_NAME -ArchiveName $env:MULTI_ARCHIVE_NAME
 
-      - name: Upload packaged artifact
+      - name: Upload pwsh-host artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.archive }}
-          path: ${{ matrix.archive }}
+          name: ${{ matrix.host_archive }}
+          path: ${{ matrix.host_archive }}
+          if-no-files-found: error
+
+      - name: Upload pwsh-multi artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.multi_archive }}
+          path: ${{ matrix.multi_archive }}
           if-no-files-found: error
 
   publish:
@@ -165,7 +195,8 @@ jobs:
         shell: pwsh
         working-directory: dist
         run: |
-          $zipFiles = Get-ChildItem -Recurse -File -Filter 'pwsh-host-*.zip' |
+          $zipFiles = Get-ChildItem -Recurse -File |
+            Where-Object { $_.Name -like 'pwsh-host-*.zip' -or $_.Name -like 'pwsh-multi-*.zip' } |
             Sort-Object Name
 
           if (-not $zipFiles) {
@@ -190,7 +221,8 @@ jobs:
           RELEASE_TAG: ${{ github.event.inputs.tag }}
           RELEASE_TARGET: ${{ github.sha }}
         run: |
-          $zipFiles = Get-ChildItem -Path dist -Recurse -File -Filter 'pwsh-host-*.zip' |
+          $zipFiles = Get-ChildItem -Path dist -Recurse -File |
+            Where-Object { $_.Name -like 'pwsh-host-*.zip' -or $_.Name -like 'pwsh-multi-*.zip' } |
             Sort-Object Name |
             ForEach-Object { $_.FullName }
 

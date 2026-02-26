@@ -1,3 +1,10 @@
 [workspace]
-members = ["crates/pwsh-host", "crates/pwsh-host-cli"]
-default-members = ["crates/pwsh-host", "crates/pwsh-host-cli"]
+members = ["crates/pwsh-host", "crates/pwsh-host-cli", "crates/multi-pwsh"]
+default-members = ["crates/pwsh-host", "crates/pwsh-host-cli", "crates/multi-pwsh"]
+
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
