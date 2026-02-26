@@ -93,6 +93,44 @@ cargo run -p pwsh-host-cli --bin pwsh-host -- -NoLogo -NoProfile -Command "$PSVe
 - Alias location: `~/.pwsh/bin`
 - Alias format: `pwsh-<major.minor>` (example: `pwsh-7.4`)
 
+### Install `multi-pwsh` from GitHub Releases
+
+Latest release bootstrap scripts:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/awakecoding/pwsh-host-rs/main/tools/install-multi-pwsh.sh | bash
+```
+
+```powershell
+irm https://raw.githubusercontent.com/awakecoding/pwsh-host-rs/main/tools/install-multi-pwsh.ps1 | iex
+```
+
+Both scripts:
+
+- Download the latest `multi-pwsh` release archive for the current OS/architecture
+- Install the executable to `~/.pwsh/bin`
+- Add `~/.pwsh/bin` to PATH if missing
+
+Uninstall bootstrap scripts:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/awakecoding/pwsh-host-rs/main/tools/uninstall-multi-pwsh.sh | bash
+```
+
+```powershell
+irm https://raw.githubusercontent.com/awakecoding/pwsh-host-rs/main/tools/uninstall-multi-pwsh.ps1 | iex
+```
+
+Install a specific tag (for example `v0.5.0`):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/awakecoding/pwsh-host-rs/main/tools/install-multi-pwsh.sh | bash -s -- v0.5.0
+```
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/awakecoding/pwsh-host-rs/main/tools/install-multi-pwsh.ps1))) -Version v0.5.0
+```
+
 Examples:
 
 ```powershell
@@ -112,7 +150,7 @@ cargo run -p multi-pwsh -- list
 cargo run -p multi-pwsh -- doctor --repair-aliases
 ```
 
-`multi-pwsh` does not modify PATH automatically. Add `~/.pwsh/bin` to PATH once in your shell profile to make aliases discoverable.
+When `multi-pwsh` is installed via the bootstrap scripts above, `~/.pwsh/bin` is added to PATH automatically if needed.
 
 ## `-NamedPipeCommand` (Windows)
 
