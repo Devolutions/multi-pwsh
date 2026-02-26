@@ -14,7 +14,7 @@ pub type char_t = u16;
 /// The char type used in nethost and hostfxr. Either u8 on unix systems or u16 on windows.
 #[allow(non_camel_case_types)]
 #[cfg(not(windows))]
-pub type char_t = i8;
+pub type char_t = libc::c_char;
 
 /// [`UnmanagedCallersOnlyAttribute`]: https://docs.microsoft.com/en-us/dotnet/api/system.runtime.interopservices.unmanagedcallersonlyattribute
 pub const UNMANAGED_CALLERS_ONLY_METHOD: *const char_t = usize::MAX as *const _;
