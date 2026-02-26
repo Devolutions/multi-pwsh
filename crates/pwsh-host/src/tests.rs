@@ -1,5 +1,8 @@
 #[cfg(test)]
 mod pwsh {
+    use std::fs;
+    use std::path::PathBuf;
+
     use jiff::Timestamp;
     use uuid::Uuid;
 
@@ -65,6 +68,56 @@ mod pwsh {
         assert!(verb_xml
             .find("<ToString>System.Management.Automation.VerbInfo</ToString>")
             .is_some());
+
+        let add_script = pwsh.invoke_member_json("AddScript", "[\"'hello-generic' | Set-Variable -Name GenericValue\"]");
+        assert!(add_script.contains("\"ok\":true"));
+
+        let add_statement_result = pwsh.invoke_member_json("AddStatement", "[]");
+        assert!(
+            add_statement_result.contains("\"ok\":true"),
+            "add_statement_result={}",
+            add_statement_result
+        );
+
+        let had_errors = pwsh.get_property_json("HadErrors");
+        assert!(had_errors.contains("\"ok\":true"));
+
+        let create_static = pwsh.invoke_static_member_json("Create", "[]");
+        assert!(create_static.contains("\"ok\":true"));
+        assert!(create_static.contains("\"kind\":\"handle\""));
+
+        if let Some(handle_value) = extract_handle_value(&create_static) {
+            pwsh.free_handle(handle_value as *mut libc::c_void);
+        }
+    }
+
+    fn extract_handle_value(json: &str) -> Option<isize> {
+        let marker = "\"handle\":";
+        let index = json.find(marker)? + marker.len();
+        let tail = &json[index..];
+        let digits: String = tail
+            .chars()
+            .skip_while(|ch| ch.is_ascii_whitespace())
+            .take_while(|ch| ch.is_ascii_digit() || *ch == '-')
+            .collect();
+        digits.parse::<isize>().ok()
+    }
+
+    #[test]
+    fn discovered_surface_includes_properties_events_and_static_members() {
+        let mut surface_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        surface_path.push("..");
+        surface_path.push("..");
+        surface_path.push("dotnet");
+        surface_path.push("obj");
+        surface_path.push("powershell.ps74.surface.json");
+
+        let report = fs::read_to_string(surface_path).unwrap();
+        assert!(report.contains("\"instancePropertyCount\""));
+        assert!(report.contains("\"instanceEventCount\""));
+        assert!(report.contains("\"staticMethodCount\""));
+        assert!(report.contains("\"staticPropertyCount\""));
+        assert!(report.contains("\"staticEvents\""));
     }
 
     /*

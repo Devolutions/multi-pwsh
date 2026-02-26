@@ -22,6 +22,11 @@ namespace NativeHost
             public IntPtr PowerShell_ExportToXml;
             public IntPtr PowerShell_ExportToJson;
             public IntPtr PowerShell_ExportToString;
+            public IntPtr Bindings_InvokeMemberJson;
+            public IntPtr Bindings_GetPropertyJson;
+            public IntPtr Bindings_SetPropertyJson;
+            public IntPtr Bindings_InvokeStaticMemberJson;
+            public IntPtr GCHandle_Free;
             public IntPtr Marshal_FreeCoTaskMem;
             public IntPtr PowerShell_Auto_AddCommand_String;
             public IntPtr PowerShell_Auto_AddCommand_String_Bool;
@@ -70,6 +75,11 @@ namespace NativeHost
                 PowerShell_ExportToXml = (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, IntPtr>)&PowerShell_ExportToXml,
                 PowerShell_ExportToJson = (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, IntPtr>)&PowerShell_ExportToJson,
                 PowerShell_ExportToString = (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, IntPtr>)&PowerShell_ExportToString,
+                Bindings_InvokeMemberJson = (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, IntPtr, IntPtr>)&Bindings_InvokeMemberJson,
+                Bindings_GetPropertyJson = (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, IntPtr>)&Bindings_GetPropertyJson,
+                Bindings_SetPropertyJson = (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, IntPtr, IntPtr>)&Bindings_SetPropertyJson,
+                Bindings_InvokeStaticMemberJson = (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, IntPtr>)&Bindings_InvokeStaticMemberJson,
+                GCHandle_Free = (IntPtr)(delegate* unmanaged<IntPtr, void>)&GCHandle_Free,
                 Marshal_FreeCoTaskMem = (IntPtr)(delegate* unmanaged<IntPtr, void>)&Marshal_FreeCoTaskMem,
                 PowerShell_Auto_AddCommand_String = (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, IntPtr>)&PowerShell_Auto_AddCommand_String,
                 PowerShell_Auto_AddCommand_String_Bool = (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, int, IntPtr>)&PowerShell_Auto_AddCommand_String_Bool,

@@ -118,6 +118,67 @@ impl PowerShell {
         }
     }
 
+    pub fn invoke_member_json(&self, member_name: &str, arguments_json: &str) -> String {
+        unsafe {
+            let member_name_cstr = CString::new(member_name).unwrap();
+            let arguments_json_cstr = CString::new(arguments_json).unwrap();
+            let cstr_ptr = (self.inner.invoke_member_json_fn)(
+                self.handle,
+                member_name_cstr.as_ptr(),
+                arguments_json_cstr.as_ptr(),
+            );
+            let cstr = CStr::from_ptr(cstr_ptr);
+            let rstr = String::from_utf8_lossy(cstr.to_bytes()).to_string();
+            self.marshal_free_co_task_mem(cstr_ptr as *mut libc::c_void);
+            rstr
+        }
+    }
+
+    pub fn get_property_json(&self, property_name: &str) -> String {
+        unsafe {
+            let property_name_cstr = CString::new(property_name).unwrap();
+            let cstr_ptr = (self.inner.get_property_json_fn)(self.handle, property_name_cstr.as_ptr());
+            let cstr = CStr::from_ptr(cstr_ptr);
+            let rstr = String::from_utf8_lossy(cstr.to_bytes()).to_string();
+            self.marshal_free_co_task_mem(cstr_ptr as *mut libc::c_void);
+            rstr
+        }
+    }
+
+    pub fn set_property_json(&self, property_name: &str, value_json: &str) -> String {
+        unsafe {
+            let property_name_cstr = CString::new(property_name).unwrap();
+            let value_json_cstr = CString::new(value_json).unwrap();
+            let cstr_ptr = (self.inner.set_property_json_fn)(
+                self.handle,
+                property_name_cstr.as_ptr(),
+                value_json_cstr.as_ptr(),
+            );
+            let cstr = CStr::from_ptr(cstr_ptr);
+            let rstr = String::from_utf8_lossy(cstr.to_bytes()).to_string();
+            self.marshal_free_co_task_mem(cstr_ptr as *mut libc::c_void);
+            rstr
+        }
+    }
+
+    pub fn invoke_static_member_json(&self, member_name: &str, arguments_json: &str) -> String {
+        unsafe {
+            let member_name_cstr = CString::new(member_name).unwrap();
+            let arguments_json_cstr = CString::new(arguments_json).unwrap();
+            let cstr_ptr = (self.inner.invoke_static_member_json_fn)(member_name_cstr.as_ptr(), arguments_json_cstr.as_ptr());
+            let cstr = CStr::from_ptr(cstr_ptr);
+            let rstr = String::from_utf8_lossy(cstr.to_bytes()).to_string();
+            self.marshal_free_co_task_mem(cstr_ptr as *mut libc::c_void);
+            rstr
+        }
+    }
+
+    pub fn free_handle(&self, handle: PowerShellHandle) {
+        unsafe {
+            (self.inner.gc_handle_free_fn)(handle);
+        }
+    }
+
     fn marshal_free_co_task_mem(&self, ptr: *mut libc::c_void) {
         unsafe {
             (self.inner.marshal_free_co_task_mem_fn)(ptr);

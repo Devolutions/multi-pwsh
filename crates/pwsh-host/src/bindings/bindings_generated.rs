@@ -35,6 +35,16 @@ pub type FnPowerShellExportToJson = unsafe extern "system" fn(handle: PowerShell
 
 pub type FnPowerShellExportToString = unsafe extern "system" fn(handle: PowerShellHandle, name: *const libc::c_char) -> *const libc::c_char;
 
+pub type FnBindingsInvokeMemberJson = unsafe extern "system" fn(handle: PowerShellHandle, member_name: *const libc::c_char, arguments_json: *const libc::c_char) -> *const libc::c_char;
+
+pub type FnBindingsGetPropertyJson = unsafe extern "system" fn(handle: PowerShellHandle, property_name: *const libc::c_char) -> *const libc::c_char;
+
+pub type FnBindingsSetPropertyJson = unsafe extern "system" fn(handle: PowerShellHandle, property_name: *const libc::c_char, value_json: *const libc::c_char) -> *const libc::c_char;
+
+pub type FnBindingsInvokeStaticMemberJson = unsafe extern "system" fn(member_name: *const libc::c_char, arguments_json: *const libc::c_char) -> *const libc::c_char;
+
+pub type FnGCHandleFree = unsafe extern "system" fn(handle: PowerShellHandle);
+
 pub type FnMarshalFreeCoTaskMem = unsafe extern "system" fn(ptr: *mut libc::c_void);
 
 pub type FnPowerShell_Auto_AddCommand_String = unsafe extern "system" fn(handle: PowerShellHandle, cmdlet: *const libc::c_char) -> PowerShellHandle;
@@ -71,16 +81,21 @@ pub struct ApiPs74 {
     pub export_to_xml_fn: *const libc::c_void,
     pub export_to_json_fn: *const libc::c_void,
     pub export_to_string_fn: *const libc::c_void,
+    pub invoke_member_json_fn: *const libc::c_void,
+    pub get_property_json_fn: *const libc::c_void,
+    pub set_property_json_fn: *const libc::c_void,
+    pub invoke_static_member_json_fn: *const libc::c_void,
+    pub gc_handle_free_fn: *const libc::c_void,
     pub marshal_free_co_task_mem_fn: *const libc::c_void,
-    pub p_ow_er_sh_el_l_a_ut_o_a_dd_co_mm_an_d_s_tr_in_g_fn: *const libc::c_void,
-    pub p_ow_er_sh_el_l_a_ut_o_a_dd_co_mm_an_d_s_tr_in_g_b_oo_l_fn: *const libc::c_void,
-    pub p_ow_er_sh_el_l_a_ut_o_a_dd_pa_ra_me_te_r_s_tr_in_g_fn: *const libc::c_void,
-    pub p_ow_er_sh_el_l_a_ut_o_a_dd_sc_ri_pt_s_tr_in_g_fn: *const libc::c_void,
-    pub p_ow_er_sh_el_l_a_ut_o_a_dd_sc_ri_pt_s_tr_in_g_b_oo_l_fn: *const libc::c_void,
-    pub p_ow_er_sh_el_l_a_ut_o_a_dd_st_at_em_en_t_n_oa_rg_s_fn: *const libc::c_void,
-    pub p_ow_er_sh_el_l_a_ut_o_c_re_at_en_es_te_dp_ow_er_sh_el_l_n_oa_rg_s_fn: *const libc::c_void,
-    pub p_ow_er_sh_el_l_a_ut_o_d_is_po_se_n_oa_rg_s_fn: *const libc::c_void,
-    pub p_ow_er_sh_el_l_a_ut_o_s_to_p_n_oa_rg_s_fn: *const libc::c_void,
+    pub p_ow_er_sh_e_l_l_a_u_t_o_a_dd_co_mm_a_n_d_s_tr_i_n_g_fn: *const libc::c_void,
+    pub p_ow_er_sh_e_l_l_a_u_t_o_a_dd_co_mm_a_n_d_s_tr_i_n_g_b_o_o_l_fn: *const libc::c_void,
+    pub p_ow_er_sh_e_l_l_a_u_t_o_a_dd_pa_ra_me_t_e_r_s_tr_i_n_g_fn: *const libc::c_void,
+    pub p_ow_er_sh_e_l_l_a_u_t_o_a_dd_sc_ri_p_t_s_tr_i_n_g_fn: *const libc::c_void,
+    pub p_ow_er_sh_e_l_l_a_u_t_o_a_dd_sc_ri_p_t_s_tr_i_n_g_b_o_o_l_fn: *const libc::c_void,
+    pub p_ow_er_sh_e_l_l_a_u_t_o_a_dd_st_at_em_e_n_t_n_oa_r_g_s_fn: *const libc::c_void,
+    pub p_ow_er_sh_e_l_l_a_u_t_o_c_re_at_en_es_te_dp_ow_er_sh_e_l_l_n_oa_r_g_s_fn: *const libc::c_void,
+    pub p_ow_er_sh_e_l_l_a_u_t_o_d_is_po_s_e_n_oa_r_g_s_fn: *const libc::c_void,
+    pub p_ow_er_sh_e_l_l_a_u_t_o_s_t_o_p_n_oa_r_g_s_fn: *const libc::c_void,
 }
 
 pub type FnBindingsGetApiPs74 = unsafe extern "system" fn() -> *const ApiPs74;
@@ -99,16 +114,21 @@ pub struct Bindings {
     pub export_to_xml_fn: FnPowerShellExportToXml,
     pub export_to_json_fn: FnPowerShellExportToJson,
     pub export_to_string_fn: FnPowerShellExportToString,
+    pub invoke_member_json_fn: FnBindingsInvokeMemberJson,
+    pub get_property_json_fn: FnBindingsGetPropertyJson,
+    pub set_property_json_fn: FnBindingsSetPropertyJson,
+    pub invoke_static_member_json_fn: FnBindingsInvokeStaticMemberJson,
+    pub gc_handle_free_fn: FnGCHandleFree,
     pub marshal_free_co_task_mem_fn: FnMarshalFreeCoTaskMem,
-    pub p_ow_er_sh_el_l_a_ut_o_a_dd_co_mm_an_d_s_tr_in_g_fn: FnPowerShell_Auto_AddCommand_String,
-    pub p_ow_er_sh_el_l_a_ut_o_a_dd_co_mm_an_d_s_tr_in_g_b_oo_l_fn: FnPowerShell_Auto_AddCommand_String_Bool,
-    pub p_ow_er_sh_el_l_a_ut_o_a_dd_pa_ra_me_te_r_s_tr_in_g_fn: FnPowerShell_Auto_AddParameter_String,
-    pub p_ow_er_sh_el_l_a_ut_o_a_dd_sc_ri_pt_s_tr_in_g_fn: FnPowerShell_Auto_AddScript_String,
-    pub p_ow_er_sh_el_l_a_ut_o_a_dd_sc_ri_pt_s_tr_in_g_b_oo_l_fn: FnPowerShell_Auto_AddScript_String_Bool,
-    pub p_ow_er_sh_el_l_a_ut_o_a_dd_st_at_em_en_t_n_oa_rg_s_fn: FnPowerShell_Auto_AddStatement_NoArgs,
-    pub p_ow_er_sh_el_l_a_ut_o_c_re_at_en_es_te_dp_ow_er_sh_el_l_n_oa_rg_s_fn: FnPowerShell_Auto_CreateNestedPowerShell_NoArgs,
-    pub p_ow_er_sh_el_l_a_ut_o_d_is_po_se_n_oa_rg_s_fn: FnPowerShell_Auto_Dispose_NoArgs,
-    pub p_ow_er_sh_el_l_a_ut_o_s_to_p_n_oa_rg_s_fn: FnPowerShell_Auto_Stop_NoArgs,
+    pub p_ow_er_sh_e_l_l_a_u_t_o_a_dd_co_mm_a_n_d_s_tr_i_n_g_fn: FnPowerShell_Auto_AddCommand_String,
+    pub p_ow_er_sh_e_l_l_a_u_t_o_a_dd_co_mm_a_n_d_s_tr_i_n_g_b_o_o_l_fn: FnPowerShell_Auto_AddCommand_String_Bool,
+    pub p_ow_er_sh_e_l_l_a_u_t_o_a_dd_pa_ra_me_t_e_r_s_tr_i_n_g_fn: FnPowerShell_Auto_AddParameter_String,
+    pub p_ow_er_sh_e_l_l_a_u_t_o_a_dd_sc_ri_p_t_s_tr_i_n_g_fn: FnPowerShell_Auto_AddScript_String,
+    pub p_ow_er_sh_e_l_l_a_u_t_o_a_dd_sc_ri_p_t_s_tr_i_n_g_b_o_o_l_fn: FnPowerShell_Auto_AddScript_String_Bool,
+    pub p_ow_er_sh_e_l_l_a_u_t_o_a_dd_st_at_em_e_n_t_n_oa_r_g_s_fn: FnPowerShell_Auto_AddStatement_NoArgs,
+    pub p_ow_er_sh_e_l_l_a_u_t_o_c_re_at_en_es_te_dp_ow_er_sh_e_l_l_n_oa_r_g_s_fn: FnPowerShell_Auto_CreateNestedPowerShell_NoArgs,
+    pub p_ow_er_sh_e_l_l_a_u_t_o_d_is_po_s_e_n_oa_r_g_s_fn: FnPowerShell_Auto_Dispose_NoArgs,
+    pub p_ow_er_sh_e_l_l_a_u_t_o_s_t_o_p_n_oa_r_g_s_fn: FnPowerShell_Auto_Stop_NoArgs,
 }
 
 impl Bindings {
@@ -155,16 +175,21 @@ impl Bindings {
             export_to_xml_fn: unsafe { std::mem::transmute(api.export_to_xml_fn) },
             export_to_json_fn: unsafe { std::mem::transmute(api.export_to_json_fn) },
             export_to_string_fn: unsafe { std::mem::transmute(api.export_to_string_fn) },
+            invoke_member_json_fn: unsafe { std::mem::transmute(api.invoke_member_json_fn) },
+            get_property_json_fn: unsafe { std::mem::transmute(api.get_property_json_fn) },
+            set_property_json_fn: unsafe { std::mem::transmute(api.set_property_json_fn) },
+            invoke_static_member_json_fn: unsafe { std::mem::transmute(api.invoke_static_member_json_fn) },
+            gc_handle_free_fn: unsafe { std::mem::transmute(api.gc_handle_free_fn) },
             marshal_free_co_task_mem_fn: unsafe { std::mem::transmute(api.marshal_free_co_task_mem_fn) },
-            p_ow_er_sh_el_l_a_ut_o_a_dd_co_mm_an_d_s_tr_in_g_fn: unsafe { std::mem::transmute(api.p_ow_er_sh_el_l_a_ut_o_a_dd_co_mm_an_d_s_tr_in_g_fn) },
-            p_ow_er_sh_el_l_a_ut_o_a_dd_co_mm_an_d_s_tr_in_g_b_oo_l_fn: unsafe { std::mem::transmute(api.p_ow_er_sh_el_l_a_ut_o_a_dd_co_mm_an_d_s_tr_in_g_b_oo_l_fn) },
-            p_ow_er_sh_el_l_a_ut_o_a_dd_pa_ra_me_te_r_s_tr_in_g_fn: unsafe { std::mem::transmute(api.p_ow_er_sh_el_l_a_ut_o_a_dd_pa_ra_me_te_r_s_tr_in_g_fn) },
-            p_ow_er_sh_el_l_a_ut_o_a_dd_sc_ri_pt_s_tr_in_g_fn: unsafe { std::mem::transmute(api.p_ow_er_sh_el_l_a_ut_o_a_dd_sc_ri_pt_s_tr_in_g_fn) },
-            p_ow_er_sh_el_l_a_ut_o_a_dd_sc_ri_pt_s_tr_in_g_b_oo_l_fn: unsafe { std::mem::transmute(api.p_ow_er_sh_el_l_a_ut_o_a_dd_sc_ri_pt_s_tr_in_g_b_oo_l_fn) },
-            p_ow_er_sh_el_l_a_ut_o_a_dd_st_at_em_en_t_n_oa_rg_s_fn: unsafe { std::mem::transmute(api.p_ow_er_sh_el_l_a_ut_o_a_dd_st_at_em_en_t_n_oa_rg_s_fn) },
-            p_ow_er_sh_el_l_a_ut_o_c_re_at_en_es_te_dp_ow_er_sh_el_l_n_oa_rg_s_fn: unsafe { std::mem::transmute(api.p_ow_er_sh_el_l_a_ut_o_c_re_at_en_es_te_dp_ow_er_sh_el_l_n_oa_rg_s_fn) },
-            p_ow_er_sh_el_l_a_ut_o_d_is_po_se_n_oa_rg_s_fn: unsafe { std::mem::transmute(api.p_ow_er_sh_el_l_a_ut_o_d_is_po_se_n_oa_rg_s_fn) },
-            p_ow_er_sh_el_l_a_ut_o_s_to_p_n_oa_rg_s_fn: unsafe { std::mem::transmute(api.p_ow_er_sh_el_l_a_ut_o_s_to_p_n_oa_rg_s_fn) },
+            p_ow_er_sh_e_l_l_a_u_t_o_a_dd_co_mm_a_n_d_s_tr_i_n_g_fn: unsafe { std::mem::transmute(api.p_ow_er_sh_e_l_l_a_u_t_o_a_dd_co_mm_a_n_d_s_tr_i_n_g_fn) },
+            p_ow_er_sh_e_l_l_a_u_t_o_a_dd_co_mm_a_n_d_s_tr_i_n_g_b_o_o_l_fn: unsafe { std::mem::transmute(api.p_ow_er_sh_e_l_l_a_u_t_o_a_dd_co_mm_a_n_d_s_tr_i_n_g_b_o_o_l_fn) },
+            p_ow_er_sh_e_l_l_a_u_t_o_a_dd_pa_ra_me_t_e_r_s_tr_i_n_g_fn: unsafe { std::mem::transmute(api.p_ow_er_sh_e_l_l_a_u_t_o_a_dd_pa_ra_me_t_e_r_s_tr_i_n_g_fn) },
+            p_ow_er_sh_e_l_l_a_u_t_o_a_dd_sc_ri_p_t_s_tr_i_n_g_fn: unsafe { std::mem::transmute(api.p_ow_er_sh_e_l_l_a_u_t_o_a_dd_sc_ri_p_t_s_tr_i_n_g_fn) },
+            p_ow_er_sh_e_l_l_a_u_t_o_a_dd_sc_ri_p_t_s_tr_i_n_g_b_o_o_l_fn: unsafe { std::mem::transmute(api.p_ow_er_sh_e_l_l_a_u_t_o_a_dd_sc_ri_p_t_s_tr_i_n_g_b_o_o_l_fn) },
+            p_ow_er_sh_e_l_l_a_u_t_o_a_dd_st_at_em_e_n_t_n_oa_r_g_s_fn: unsafe { std::mem::transmute(api.p_ow_er_sh_e_l_l_a_u_t_o_a_dd_st_at_em_e_n_t_n_oa_r_g_s_fn) },
+            p_ow_er_sh_e_l_l_a_u_t_o_c_re_at_en_es_te_dp_ow_er_sh_e_l_l_n_oa_r_g_s_fn: unsafe { std::mem::transmute(api.p_ow_er_sh_e_l_l_a_u_t_o_c_re_at_en_es_te_dp_ow_er_sh_e_l_l_n_oa_r_g_s_fn) },
+            p_ow_er_sh_e_l_l_a_u_t_o_d_is_po_s_e_n_oa_r_g_s_fn: unsafe { std::mem::transmute(api.p_ow_er_sh_e_l_l_a_u_t_o_d_is_po_s_e_n_oa_r_g_s_fn) },
+            p_ow_er_sh_e_l_l_a_u_t_o_s_t_o_p_n_oa_r_g_s_fn: unsafe { std::mem::transmute(api.p_ow_er_sh_e_l_l_a_u_t_o_s_t_o_p_n_oa_r_g_s_fn) },
         })
     }
 }

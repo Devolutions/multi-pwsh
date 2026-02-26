@@ -20,9 +20,10 @@ function ConvertTo-SnakeCase {
         [string]$Value
     )
 
-    $withUnderscore = $Value -replace '([a-z0-9])([A-Z])', '$1_$2'
-    $withUnderscore = $withUnderscore -replace '[^A-Za-z0-9_]', '_'
-    $withUnderscore.ToLowerInvariant()
+    $withUnderscore = $Value -replace '([A-Z]+)([A-Z][a-z])', '$1_$2'
+    $withUnderscore = $withUnderscore -replace '([a-z0-9])([A-Z])', '$1_$2'
+    $withUnderscore = $withUnderscore -replace '[^A-Za-z0-9]+', '_'
+    $withUnderscore.Trim('_').ToLowerInvariant()
 }
 
 function Get-SafeIdentifier {
@@ -94,6 +95,11 @@ function Get-BaseContractEntries {
         (New-ContractEntry -Name 'PowerShell_ExportToXml' -TableField 'PowerShell_ExportToXml' -RustField 'export_to_xml_fn' -RustTypedef 'FnPowerShellExportToXml' -RustSignature 'unsafe extern "system" fn(handle: PowerShellHandle, name: *const libc::c_char) -> *const libc::c_char' -CSharpFunctionPointer 'delegate* unmanaged<IntPtr, IntPtr, IntPtr>'),
         (New-ContractEntry -Name 'PowerShell_ExportToJson' -TableField 'PowerShell_ExportToJson' -RustField 'export_to_json_fn' -RustTypedef 'FnPowerShellExportToJson' -RustSignature 'unsafe extern "system" fn(handle: PowerShellHandle, name: *const libc::c_char) -> *const libc::c_char' -CSharpFunctionPointer 'delegate* unmanaged<IntPtr, IntPtr, IntPtr>'),
         (New-ContractEntry -Name 'PowerShell_ExportToString' -TableField 'PowerShell_ExportToString' -RustField 'export_to_string_fn' -RustTypedef 'FnPowerShellExportToString' -RustSignature 'unsafe extern "system" fn(handle: PowerShellHandle, name: *const libc::c_char) -> *const libc::c_char' -CSharpFunctionPointer 'delegate* unmanaged<IntPtr, IntPtr, IntPtr>'),
+        (New-ContractEntry -Name 'Bindings_InvokeMemberJson' -TableField 'Bindings_InvokeMemberJson' -RustField 'invoke_member_json_fn' -RustTypedef 'FnBindingsInvokeMemberJson' -RustSignature 'unsafe extern "system" fn(handle: PowerShellHandle, member_name: *const libc::c_char, arguments_json: *const libc::c_char) -> *const libc::c_char' -CSharpFunctionPointer 'delegate* unmanaged<IntPtr, IntPtr, IntPtr, IntPtr>'),
+        (New-ContractEntry -Name 'Bindings_GetPropertyJson' -TableField 'Bindings_GetPropertyJson' -RustField 'get_property_json_fn' -RustTypedef 'FnBindingsGetPropertyJson' -RustSignature 'unsafe extern "system" fn(handle: PowerShellHandle, property_name: *const libc::c_char) -> *const libc::c_char' -CSharpFunctionPointer 'delegate* unmanaged<IntPtr, IntPtr, IntPtr>'),
+        (New-ContractEntry -Name 'Bindings_SetPropertyJson' -TableField 'Bindings_SetPropertyJson' -RustField 'set_property_json_fn' -RustTypedef 'FnBindingsSetPropertyJson' -RustSignature 'unsafe extern "system" fn(handle: PowerShellHandle, property_name: *const libc::c_char, value_json: *const libc::c_char) -> *const libc::c_char' -CSharpFunctionPointer 'delegate* unmanaged<IntPtr, IntPtr, IntPtr, IntPtr>'),
+        (New-ContractEntry -Name 'Bindings_InvokeStaticMemberJson' -TableField 'Bindings_InvokeStaticMemberJson' -RustField 'invoke_static_member_json_fn' -RustTypedef 'FnBindingsInvokeStaticMemberJson' -RustSignature 'unsafe extern "system" fn(member_name: *const libc::c_char, arguments_json: *const libc::c_char) -> *const libc::c_char' -CSharpFunctionPointer 'delegate* unmanaged<IntPtr, IntPtr, IntPtr>'),
+        (New-ContractEntry -Name 'GCHandle_Free' -TableField 'GCHandle_Free' -RustField 'gc_handle_free_fn' -RustTypedef 'FnGCHandleFree' -RustSignature 'unsafe extern "system" fn(handle: PowerShellHandle)' -CSharpFunctionPointer 'delegate* unmanaged<IntPtr, void>'),
         (New-ContractEntry -Name 'Marshal_FreeCoTaskMem' -TableField 'Marshal_FreeCoTaskMem' -RustField 'marshal_free_co_task_mem_fn' -RustTypedef 'FnMarshalFreeCoTaskMem' -RustSignature 'unsafe extern "system" fn(ptr: *mut libc::c_void)' -CSharpFunctionPointer 'delegate* unmanaged<IntPtr, void>')
     )
 }
@@ -271,10 +277,27 @@ foreach ($entry in $baseEntries) {
     [void]$existingNames.Add([string]$entry.name)
 }
 
-$bindingFlags = [System.Reflection.BindingFlags]::Public -bor [System.Reflection.BindingFlags]::Instance -bor [System.Reflection.BindingFlags]::DeclaredOnly
-$methods = [System.Management.Automation.PowerShell].GetMethods($bindingFlags) |
+$instanceBindingFlags = [System.Reflection.BindingFlags]::Public -bor [System.Reflection.BindingFlags]::Instance -bor [System.Reflection.BindingFlags]::DeclaredOnly
+$staticBindingFlags = [System.Reflection.BindingFlags]::Public -bor [System.Reflection.BindingFlags]::Static -bor [System.Reflection.BindingFlags]::DeclaredOnly
+$methods = [System.Management.Automation.PowerShell].GetMethods($instanceBindingFlags) |
     Where-Object { -not $_.IsSpecialName -and -not $_.ContainsGenericParameters } |
     Sort-Object Name, @{ Expression = { $_.GetParameters().Count } }, @{ Expression = { $_.ToString() } }
+
+$instanceProperties = [System.Management.Automation.PowerShell].GetProperties($instanceBindingFlags) |
+    Sort-Object Name
+
+$instanceEvents = [System.Management.Automation.PowerShell].GetEvents($instanceBindingFlags) |
+    Sort-Object Name
+
+$staticMethods = [System.Management.Automation.PowerShell].GetMethods($staticBindingFlags) |
+    Where-Object { -not $_.IsSpecialName -and -not $_.ContainsGenericParameters } |
+    Sort-Object Name, @{ Expression = { $_.GetParameters().Count } }, @{ Expression = { $_.ToString() } }
+
+$staticProperties = [System.Management.Automation.PowerShell].GetProperties($staticBindingFlags) |
+    Sort-Object Name
+
+$staticEvents = [System.Management.Automation.PowerShell].GetEvents($staticBindingFlags) |
+    Sort-Object Name
 
 $surface = New-Object System.Collections.Generic.List[object]
 $discoveredEntries = New-Object System.Collections.Generic.List[object]
@@ -411,7 +434,16 @@ foreach ($method in $methods) {
         }
         'handle' {
             [void]$bodyLines.Add("            PowerShell result = $callExpression;")
-            [void]$bodyLines.Add('            return result == null ? IntPtr.Zero : ptrHandle;')
+            [void]$bodyLines.Add('            if (result == null)')
+            [void]$bodyLines.Add('            {')
+            [void]$bodyLines.Add('                return IntPtr.Zero;')
+            [void]$bodyLines.Add('            }')
+            [void]$bodyLines.Add('            if (object.ReferenceEquals(result, ps))')
+            [void]$bodyLines.Add('            {')
+            [void]$bodyLines.Add('                return ptrHandle;')
+            [void]$bodyLines.Add('            }')
+            [void]$bodyLines.Add('            GCHandle nested = GCHandle.Alloc(result, GCHandleType.Normal);')
+            [void]$bodyLines.Add('            return GCHandle.ToIntPtr(nested);')
         }
         default {
             throw "Unsupported return mapping kind: $($returnMapping.Kind)"
@@ -455,8 +487,48 @@ $surfaceReport = [ordered]@{
     baseEntryCount = $baseEntries.Count
     discoveredEntryCount = $discoveredEntries.Count
     totalEntryCount = $mergedEntries.Count
-    methodCount = $methods.Count
+    instanceMethodCount = $methods.Count
+    instancePropertyCount = $instanceProperties.Count
+    instanceEventCount = $instanceEvents.Count
+    staticMethodCount = $staticMethods.Count
+    staticPropertyCount = $staticProperties.Count
+    staticEventCount = $staticEvents.Count
     methods = $surface
+    instanceProperties = @($instanceProperties | ForEach-Object {
+            [ordered]@{
+                property = $_.ToString()
+                supported = $false
+                reason = 'typed wrapper not generated; reachable via generic dispatch'
+            }
+        })
+    instanceEvents = @($instanceEvents | ForEach-Object {
+            [ordered]@{
+                event = $_.ToString()
+                supported = $false
+                reason = 'typed wrapper not generated; event bridge pending'
+            }
+        })
+    staticMethods = @($staticMethods | ForEach-Object {
+            [ordered]@{
+                method = (Get-MethodSignature -Method $_)
+                supported = $false
+                reason = 'typed wrapper not generated; reachable via generic dispatch'
+            }
+        })
+    staticProperties = @($staticProperties | ForEach-Object {
+            [ordered]@{
+                property = $_.ToString()
+                supported = $false
+                reason = 'typed wrapper not generated; reachable via generic dispatch'
+            }
+        })
+    staticEvents = @($staticEvents | ForEach-Object {
+            [ordered]@{
+                event = $_.ToString()
+                supported = $false
+                reason = 'typed wrapper not generated; event bridge pending'
+            }
+        })
 }
 
 $csharpWrapperContent = @"
