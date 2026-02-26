@@ -1,0 +1,122 @@
+{
+  "contractName": "PS74",
+  "bindingTypeName": "NativeHost.Bindings, Bindings",
+  "bootstrapMethod": "Bindings_GetApiPS74",
+  "csharpApiStructName": "ApiPS74",
+  "rustApiStructName": "ApiPs74",
+  "rustGetApiFunctionType": "FnBindingsGetApiPs74",
+  "entries": [
+    {
+      "name": "PowerShell_Create",
+      "tableField": "PowerShell_Create",
+      "rustField": "create_fn",
+      "rustTypedef": "FnPowerShellCreate",
+      "rustSignature": "unsafe extern \"system\" fn() -> PowerShellHandle",
+      "csharpFunctionPointer": "delegate* unmanaged<IntPtr>"
+    },
+    {
+      "name": "PowerShell_AddArgument_String",
+      "tableField": "PowerShell_AddArgument_String",
+      "rustField": "add_argument_string_fn",
+      "rustTypedef": "FnPowerShellAddArgumentString",
+      "rustSignature": "unsafe extern \"system\" fn(handle: PowerShellHandle, argument: *const libc::c_char)",
+      "csharpFunctionPointer": "delegate* unmanaged<IntPtr, IntPtr, void>"
+    },
+    {
+      "name": "PowerShell_AddParameter_String",
+      "tableField": "PowerShell_AddParameter_String",
+      "rustField": "add_parameter_string_fn",
+      "rustTypedef": "FnPowerShellAddParameterString",
+      "rustSignature": "unsafe extern \"system\" fn(handle: PowerShellHandle, name: *const libc::c_char, value: *const libc::c_char)",
+      "csharpFunctionPointer": "delegate* unmanaged<IntPtr, IntPtr, IntPtr, void>"
+    },
+    {
+      "name": "PowerShell_AddParameter_Int",
+      "tableField": "PowerShell_AddParameter_Int",
+      "rustField": "add_parameter_int_fn",
+      "rustTypedef": "FnPowerShellAddParameterInt",
+      "rustSignature": "unsafe extern \"system\" fn(handle: PowerShellHandle, name: *const libc::c_char, value: i32)",
+      "csharpFunctionPointer": "delegate* unmanaged<IntPtr, IntPtr, int, void>"
+    },
+    {
+      "name": "PowerShell_AddParameter_Long",
+      "tableField": "PowerShell_AddParameter_Long",
+      "rustField": "add_parameter_long_fn",
+      "rustTypedef": "FnPowerShellAddParameterLong",
+      "rustSignature": "unsafe extern \"system\" fn(handle: PowerShellHandle, name: *const libc::c_char, value: i64)",
+      "csharpFunctionPointer": "delegate* unmanaged<IntPtr, IntPtr, long, void>"
+    },
+    {
+      "name": "PowerShell_AddCommand",
+      "tableField": "PowerShell_AddCommand",
+      "rustField": "add_command_fn",
+      "rustTypedef": "FnPowerShellAddCommand",
+      "rustSignature": "unsafe extern \"system\" fn(handle: PowerShellHandle, command: *const libc::c_char)",
+      "csharpFunctionPointer": "delegate* unmanaged<IntPtr, IntPtr, void>"
+    },
+    {
+      "name": "PowerShell_AddScript",
+      "tableField": "PowerShell_AddScript",
+      "rustField": "add_script_fn",
+      "rustTypedef": "FnPowerShellAddScript",
+      "rustSignature": "unsafe extern \"system\" fn(handle: PowerShellHandle, script: *const libc::c_char)",
+      "csharpFunctionPointer": "delegate* unmanaged<IntPtr, IntPtr, void>"
+    },
+    {
+      "name": "PowerShell_AddStatement",
+      "tableField": "PowerShell_AddStatement",
+      "rustField": "add_statement_fn",
+      "rustTypedef": "FnPowerShellAddStatement",
+      "rustSignature": "unsafe extern \"system\" fn(handle: PowerShellHandle)",
+      "csharpFunctionPointer": "delegate* unmanaged<IntPtr, void>"
+    },
+    {
+      "name": "PowerShell_Invoke",
+      "tableField": "PowerShell_Invoke",
+      "rustField": "invoke_fn",
+      "rustTypedef": "FnPowerShellInvoke",
+      "rustSignature": "unsafe extern \"system\" fn(handle: PowerShellHandle)",
+      "csharpFunctionPointer": "delegate* unmanaged<IntPtr, void>"
+    },
+    {
+      "name": "PowerShell_Clear",
+      "tableField": "PowerShell_Clear",
+      "rustField": "clear_fn",
+      "rustTypedef": "FnPowerShellClear",
+      "rustSignature": "unsafe extern \"system\" fn(handle: PowerShellHandle)",
+      "csharpFunctionPointer": "delegate* unmanaged<IntPtr, void>"
+    },
+    {
+      "name": "PowerShell_ExportToXml",
+      "tableField": "PowerShell_ExportToXml",
+      "rustField": "export_to_xml_fn",
+      "rustTypedef": "FnPowerShellExportToXml",
+      "rustSignature": "unsafe extern \"system\" fn(handle: PowerShellHandle, name: *const libc::c_char) -> *const libc::c_char",
+      "csharpFunctionPointer": "delegate* unmanaged<IntPtr, IntPtr, IntPtr>"
+    },
+    {
+      "name": "PowerShell_ExportToJson",
+      "tableField": "PowerShell_ExportToJson",
+      "rustField": "export_to_json_fn",
+      "rustTypedef": "FnPowerShellExportToJson",
+      "rustSignature": "unsafe extern \"system\" fn(handle: PowerShellHandle, name: *const libc::c_char) -> *const libc::c_char",
+      "csharpFunctionPointer": "delegate* unmanaged<IntPtr, IntPtr, IntPtr>"
+    },
+    {
+      "name": "PowerShell_ExportToString",
+      "tableField": "PowerShell_ExportToString",
+      "rustField": "export_to_string_fn",
+      "rustTypedef": "FnPowerShellExportToString",
+      "rustSignature": "unsafe extern \"system\" fn(handle: PowerShellHandle, name: *const libc::c_char) -> *const libc::c_char",
+      "csharpFunctionPointer": "delegate* unmanaged<IntPtr, IntPtr, IntPtr>"
+    },
+    {
+      "name": "Marshal_FreeCoTaskMem",
+      "tableField": "Marshal_FreeCoTaskMem",
+      "rustField": "marshal_free_co_task_mem_fn",
+      "rustTypedef": "FnMarshalFreeCoTaskMem",
+      "rustSignature": "unsafe extern \"system\" fn(ptr: *mut libc::c_void)",
+      "csharpFunctionPointer": "delegate* unmanaged<IntPtr, void>"
+    }
+  ]
+}

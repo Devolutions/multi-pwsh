@@ -8,4 +8,7 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.PowerShell.SDK" Version="7.4.13" />
   </ItemGroup>
+  <Target Name="GenerateBindings" BeforeTargets="BeforeBuild">
+    <Exec Command="pwsh -NoLogo -NoProfile -File &quot;$(MSBuildThisFileDirectory)..\scripts\Generate-Bindings.ps1&quot; -ContractPath &quot;$(MSBuildThisFileDirectory)..\scripts\bindings.ps74.contract.json&quot; -CSharpOutputPath &quot;$(MSBuildThisFileDirectory)Bindings.Generated.cs&quot; -RustOutputPath &quot;$(MSBuildThisFileDirectory)..\crates\pwsh-host\src\bindings\bindings_generated.rs&quot;" />
+  </Target>
 </Project>

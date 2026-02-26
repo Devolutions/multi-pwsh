@@ -44,6 +44,7 @@ That thread established the core approach used here:
 ## Build
 
 ```powershell
+pwsh -NoLogo -NoProfile -File ./scripts/Generate-Bindings.ps1
 cargo build --all-targets
 dotnet build pwsh-host-rs.sln
 ```
@@ -122,3 +123,4 @@ assert_eq!(date_json, "\"2019-12-31T19:00:00-05:00\"");
 - The unmanaged bindings function-table contract is versioned as `PS74` (for PowerShell 7.4 on .NET 8 LTS).
 - The .NET bindings package baseline uses `Microsoft.PowerShell.SDK` `7.4.13`, and should track the latest compatible `7.4.x` patch.
 - `dotnet/Bindings.csproj` enables `UseRidGraph` to keep runtime-identifier compatibility under .NET 8.
+- Binding surface metadata lives in `scripts/bindings.ps74.contract.json` and generates `dotnet/Bindings.Generated.cs` plus `crates/pwsh-host/src/bindings/bindings_generated.rs`.

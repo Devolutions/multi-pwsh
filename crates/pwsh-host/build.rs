@@ -16,4 +16,13 @@ fn main() {
         .arg("Release")
         .output()
         .expect("failed to execute dotnet build command");
+
+    if !_output.status.success() {
+        panic!(
+            "dotnet build failed with status {}\nstdout:\n{}\nstderr:\n{}",
+            _output.status,
+            String::from_utf8_lossy(&_output.stdout),
+            String::from_utf8_lossy(&_output.stderr)
+        );
+    }
 }
