@@ -23,6 +23,15 @@ namespace NativeHost
             public IntPtr PowerShell_ExportToJson;
             public IntPtr PowerShell_ExportToString;
             public IntPtr Marshal_FreeCoTaskMem;
+            public IntPtr PowerShell_Auto_AddCommand_String;
+            public IntPtr PowerShell_Auto_AddCommand_String_Bool;
+            public IntPtr PowerShell_Auto_AddParameter_String;
+            public IntPtr PowerShell_Auto_AddScript_String;
+            public IntPtr PowerShell_Auto_AddScript_String_Bool;
+            public IntPtr PowerShell_Auto_AddStatement_NoArgs;
+            public IntPtr PowerShell_Auto_CreateNestedPowerShell_NoArgs;
+            public IntPtr PowerShell_Auto_Dispose_NoArgs;
+            public IntPtr PowerShell_Auto_Stop_NoArgs;
         }
 
         private static readonly object ApiPS74Lock = new object();
@@ -62,6 +71,15 @@ namespace NativeHost
                 PowerShell_ExportToJson = (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, IntPtr>)&PowerShell_ExportToJson,
                 PowerShell_ExportToString = (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, IntPtr>)&PowerShell_ExportToString,
                 Marshal_FreeCoTaskMem = (IntPtr)(delegate* unmanaged<IntPtr, void>)&Marshal_FreeCoTaskMem,
+                PowerShell_Auto_AddCommand_String = (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, IntPtr>)&PowerShell_Auto_AddCommand_String,
+                PowerShell_Auto_AddCommand_String_Bool = (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, int, IntPtr>)&PowerShell_Auto_AddCommand_String_Bool,
+                PowerShell_Auto_AddParameter_String = (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, IntPtr>)&PowerShell_Auto_AddParameter_String,
+                PowerShell_Auto_AddScript_String = (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, IntPtr>)&PowerShell_Auto_AddScript_String,
+                PowerShell_Auto_AddScript_String_Bool = (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, int, IntPtr>)&PowerShell_Auto_AddScript_String_Bool,
+                PowerShell_Auto_AddStatement_NoArgs = (IntPtr)(delegate* unmanaged<IntPtr, IntPtr>)&PowerShell_Auto_AddStatement_NoArgs,
+                PowerShell_Auto_CreateNestedPowerShell_NoArgs = (IntPtr)(delegate* unmanaged<IntPtr, IntPtr>)&PowerShell_Auto_CreateNestedPowerShell_NoArgs,
+                PowerShell_Auto_Dispose_NoArgs = (IntPtr)(delegate* unmanaged<IntPtr, void>)&PowerShell_Auto_Dispose_NoArgs,
+                PowerShell_Auto_Stop_NoArgs = (IntPtr)(delegate* unmanaged<IntPtr, void>)&PowerShell_Auto_Stop_NoArgs,
             };
         }
     }
