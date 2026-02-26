@@ -20,11 +20,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup PowerShell LTS
-        uses: ./.github/actions/setup-pwsh
-        with:
-          version: stable
-          github-token: ${{ github.token }}
+      - name: Install multi-pwsh bootstrap
+        run: bash ./tools/install-multi-pwsh.sh
+
+      - name: Add multi-pwsh bin to PATH
+        run: echo "$HOME/.pwsh/bin" >> "$GITHUB_PATH"
+
+      - name: Install PowerShell aliases
+        shell: bash
+        run: |
+          multi-pwsh install 7.4
+          multi-pwsh install 7.5
 
       - name: Install .NET SDK
         uses: actions/setup-dotnet@v4
@@ -63,21 +69,32 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup PowerShell LTS
-        id: setup-pwsh
-        uses: ./.github/actions/setup-pwsh
-        with:
-          version: stable
-          github-token: ${{ github.token }}
+      - name: Install multi-pwsh bootstrap (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: ./tools/install-multi-pwsh.ps1
 
-      - name: Resolve pwsh executable path
-        id: pwsh-exe
+      - name: Install multi-pwsh bootstrap (Unix)
+        if: matrix.os != 'windows-latest'
+        run: bash ./tools/install-multi-pwsh.sh
+
+      - name: Add multi-pwsh bin to PATH (Windows)
+        if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
-          $pwshPath = "${{ steps.setup-pwsh.outputs.path }}"
-          $exeName = if ($IsWindows) { "pwsh.exe" } else { "pwsh" }
-          $exePath = Join-Path $pwshPath $exeName
-          "path=$exePath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "$HOME\.pwsh\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Add multi-pwsh bin to PATH (Unix)
+        if: matrix.os != 'windows-latest'
+        run: echo "$HOME/.pwsh/bin" >> "$GITHUB_PATH"
+
+      - name: Install PowerShell aliases
+        shell: pwsh
+        run: |
+          multi-pwsh install 7.4
+          multi-pwsh install 7.5
+          pwsh-7.4 -NoLogo -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'
+          pwsh-7.5 -NoLogo -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'
 
       - name: Install .NET SDK
         uses: actions/setup-dotnet@v4
@@ -107,8 +124,8 @@ jobs:
 
       - name: Build .NET project
         shell: pwsh
-        run: dotnet build dotnet/Bindings.csproj -p:PwshExePath="${{ steps.pwsh-exe.outputs.path }}"
+        run: dotnet build dotnet/Bindings.csproj -p:PwshExePath="pwsh-7.4"
 
       - name: Run .NET tests
         shell: pwsh
-        run: dotnet test dotnet/Bindings.csproj --no-build -p:PwshExePath="${{ steps.pwsh-exe.outputs.path }}"
+        run: dotnet test dotnet/Bindings.csproj --no-build -p:PwshExePath="pwsh-7.4"

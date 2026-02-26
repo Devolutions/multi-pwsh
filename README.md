@@ -98,11 +98,11 @@ cargo run -p pwsh-host-cli --bin pwsh-host -- -NoLogo -NoProfile -Command "$PSVe
 Latest release bootstrap scripts:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/awakecoding/pwsh-host-rs/main/tools/install-multi-pwsh.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Devolutions/pwsh-host-rs/refs/heads/master/tools/install-multi-pwsh.sh | bash
 ```
 
 ```powershell
-irm https://raw.githubusercontent.com/awakecoding/pwsh-host-rs/main/tools/install-multi-pwsh.ps1 | iex
+irm https://raw.githubusercontent.com/Devolutions/pwsh-host-rs/refs/heads/master/tools/install-multi-pwsh.ps1 | iex
 ```
 
 Both scripts:
@@ -114,21 +114,21 @@ Both scripts:
 Uninstall bootstrap scripts:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/awakecoding/pwsh-host-rs/main/tools/uninstall-multi-pwsh.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Devolutions/pwsh-host-rs/refs/heads/master/tools/uninstall-multi-pwsh.sh | bash
 ```
 
 ```powershell
-irm https://raw.githubusercontent.com/awakecoding/pwsh-host-rs/main/tools/uninstall-multi-pwsh.ps1 | iex
+irm https://raw.githubusercontent.com/Devolutions/pwsh-host-rs/refs/heads/master/tools/uninstall-multi-pwsh.ps1 | iex
 ```
 
 Install a specific tag (for example `v0.5.0`):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/awakecoding/pwsh-host-rs/main/tools/install-multi-pwsh.sh | bash -s -- v0.5.0
+curl -fsSL https://raw.githubusercontent.com/Devolutions/pwsh-host-rs/refs/heads/master/tools/install-multi-pwsh.sh | bash -s -- v0.5.0
 ```
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/awakecoding/pwsh-host-rs/main/tools/install-multi-pwsh.ps1))) -Version v0.5.0
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/Devolutions/pwsh-host-rs/refs/heads/master/tools/install-multi-pwsh.ps1))) -Version v0.5.0
 ```
 
 Examples:
