@@ -61,6 +61,12 @@ jobs:
         with:
           ref: ${{ github.ref }}
 
+      - name: Setup PowerShell LTS
+        uses: ./.github/actions/setup-pwsh
+        with:
+          version: stable
+          github-token: ${{ github.token }}
+
       - name: Install .NET SDK
         uses: actions/setup-dotnet@v4
         with:
@@ -141,6 +147,15 @@ jobs:
     if: startsWith(github.event.inputs.tag, 'v')
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PowerShell LTS
+        uses: ./.github/actions/setup-pwsh
+        with:
+          version: stable
+          github-token: ${{ github.token }}
+
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:

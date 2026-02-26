@@ -20,6 +20,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup PowerShell LTS
+        uses: ./.github/actions/setup-pwsh
+        with:
+          version: stable
+          github-token: ${{ github.token }}
+
       - name: Install .NET SDK
         uses: actions/setup-dotnet@v4
         with:
@@ -57,6 +63,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup PowerShell LTS
+        id: setup-pwsh
+        uses: ./.github/actions/setup-pwsh
+        with:
+          version: stable
+          github-token: ${{ github.token }}
+
+      - name: Resolve pwsh executable path
+        id: pwsh-exe
+        shell: pwsh
+        run: |
+          $pwshPath = "${{ steps.setup-pwsh.outputs.path }}"
+          $exeName = if ($IsWindows) { "pwsh.exe" } else { "pwsh" }
+          $exePath = Join-Path $pwshPath $exeName
+          "path=$exePath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
       - name: Install .NET SDK
         uses: actions/setup-dotnet@v4
         with:
@@ -84,7 +106,9 @@ jobs:
         run: cargo test --all-targets
 
       - name: Build .NET project
-        run: dotnet build dotnet/Bindings.csproj
+        shell: pwsh
+        run: dotnet build dotnet/Bindings.csproj -p:PwshExePath="${{ steps.pwsh-exe.outputs.path }}"
 
       - name: Run .NET tests
-        run: dotnet test dotnet/Bindings.csproj --no-build
+        shell: pwsh
+        run: dotnet test dotnet/Bindings.csproj --no-build -p:PwshExePath="${{ steps.pwsh-exe.outputs.path }}"
