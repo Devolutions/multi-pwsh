@@ -64,7 +64,7 @@ impl PdCStr {
 
 // methods used by this crate
 impl PdCStr {
-    pub fn as_ptr(&self) -> *const i8 {
+    pub fn as_ptr(&self) -> *const libc::c_char {
         self.0.as_ptr()
     }
 
