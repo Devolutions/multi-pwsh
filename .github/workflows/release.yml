@@ -183,9 +183,12 @@ jobs:
             throw 'No release archives found under dist'
           }
 
-          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" @zipFiles "dist/checksums.txt" --clobber
-          else
+          gh release view "$env:RELEASE_TAG" *> $null
+
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload "$env:RELEASE_TAG" @zipFiles "dist/checksums.txt" --clobber
+          }
+          else {
             $createArgs = @(
               "$env:RELEASE_TAG"
             )
@@ -197,4 +200,4 @@ jobs:
             $createArgs += "$env:RELEASE_TARGET"
 
             gh release create @createArgs
-          fi
+          }
