@@ -11,13 +11,17 @@ pub type PowerShellHandle = *mut libc::c_void;
 
 pub type FnPowerShellCreate = unsafe extern "system" fn() -> PowerShellHandle;
 
-pub type FnPowerShellAddArgumentString = unsafe extern "system" fn(handle: PowerShellHandle, argument: *const libc::c_char);
+pub type FnPowerShellAddArgumentString =
+    unsafe extern "system" fn(handle: PowerShellHandle, argument: *const libc::c_char);
 
-pub type FnPowerShellAddParameterString = unsafe extern "system" fn(handle: PowerShellHandle, name: *const libc::c_char, value: *const libc::c_char);
+pub type FnPowerShellAddParameterString =
+    unsafe extern "system" fn(handle: PowerShellHandle, name: *const libc::c_char, value: *const libc::c_char);
 
-pub type FnPowerShellAddParameterInt = unsafe extern "system" fn(handle: PowerShellHandle, name: *const libc::c_char, value: i32);
+pub type FnPowerShellAddParameterInt =
+    unsafe extern "system" fn(handle: PowerShellHandle, name: *const libc::c_char, value: i32);
 
-pub type FnPowerShellAddParameterLong = unsafe extern "system" fn(handle: PowerShellHandle, name: *const libc::c_char, value: i64);
+pub type FnPowerShellAddParameterLong =
+    unsafe extern "system" fn(handle: PowerShellHandle, name: *const libc::c_char, value: i64);
 
 pub type FnPowerShellAddCommand = unsafe extern "system" fn(handle: PowerShellHandle, command: *const libc::c_char);
 
@@ -29,37 +33,65 @@ pub type FnPowerShellInvoke = unsafe extern "system" fn(handle: PowerShellHandle
 
 pub type FnPowerShellClear = unsafe extern "system" fn(handle: PowerShellHandle);
 
-pub type FnPowerShellExportToXml = unsafe extern "system" fn(handle: PowerShellHandle, name: *const libc::c_char) -> *const libc::c_char;
+pub type FnPowerShellExportToXml =
+    unsafe extern "system" fn(handle: PowerShellHandle, name: *const libc::c_char) -> *const libc::c_char;
 
-pub type FnPowerShellExportToJson = unsafe extern "system" fn(handle: PowerShellHandle, name: *const libc::c_char) -> *const libc::c_char;
+pub type FnPowerShellExportToJson =
+    unsafe extern "system" fn(handle: PowerShellHandle, name: *const libc::c_char) -> *const libc::c_char;
 
-pub type FnPowerShellExportToString = unsafe extern "system" fn(handle: PowerShellHandle, name: *const libc::c_char) -> *const libc::c_char;
+pub type FnPowerShellExportToString =
+    unsafe extern "system" fn(handle: PowerShellHandle, name: *const libc::c_char) -> *const libc::c_char;
 
-pub type FnBindingsInvokeMemberJson = unsafe extern "system" fn(handle: PowerShellHandle, member_name: *const libc::c_char, arguments_json: *const libc::c_char) -> *const libc::c_char;
+pub type FnBindingsInvokeMemberJson = unsafe extern "system" fn(
+    handle: PowerShellHandle,
+    member_name: *const libc::c_char,
+    arguments_json: *const libc::c_char,
+) -> *const libc::c_char;
 
-pub type FnBindingsGetPropertyJson = unsafe extern "system" fn(handle: PowerShellHandle, property_name: *const libc::c_char) -> *const libc::c_char;
+pub type FnBindingsGetPropertyJson =
+    unsafe extern "system" fn(handle: PowerShellHandle, property_name: *const libc::c_char) -> *const libc::c_char;
 
-pub type FnBindingsSetPropertyJson = unsafe extern "system" fn(handle: PowerShellHandle, property_name: *const libc::c_char, value_json: *const libc::c_char) -> *const libc::c_char;
+pub type FnBindingsSetPropertyJson = unsafe extern "system" fn(
+    handle: PowerShellHandle,
+    property_name: *const libc::c_char,
+    value_json: *const libc::c_char,
+) -> *const libc::c_char;
 
-pub type FnBindingsInvokeStaticMemberJson = unsafe extern "system" fn(member_name: *const libc::c_char, arguments_json: *const libc::c_char) -> *const libc::c_char;
+pub type FnBindingsInvokeStaticMemberJson = unsafe extern "system" fn(
+    member_name: *const libc::c_char,
+    arguments_json: *const libc::c_char,
+) -> *const libc::c_char;
 
 pub type FnGCHandleFree = unsafe extern "system" fn(handle: PowerShellHandle);
 
 pub type FnMarshalFreeCoTaskMem = unsafe extern "system" fn(ptr: *mut libc::c_void);
 
-pub type FnPowerShell_Auto_AddCommand_String = unsafe extern "system" fn(handle: PowerShellHandle, cmdlet: *const libc::c_char) -> PowerShellHandle;
+pub type FnPowerShell_Auto_AddCommand_String =
+    unsafe extern "system" fn(handle: PowerShellHandle, cmdlet: *const libc::c_char) -> PowerShellHandle;
 
-pub type FnPowerShell_Auto_AddCommand_String_Bool = unsafe extern "system" fn(handle: PowerShellHandle, cmdlet: *const libc::c_char, useLocalScope: i32) -> PowerShellHandle;
+pub type FnPowerShell_Auto_AddCommand_String_Bool = unsafe extern "system" fn(
+    handle: PowerShellHandle,
+    cmdlet: *const libc::c_char,
+    useLocalScope: i32,
+) -> PowerShellHandle;
 
-pub type FnPowerShell_Auto_AddParameter_String = unsafe extern "system" fn(handle: PowerShellHandle, parameterName: *const libc::c_char) -> PowerShellHandle;
+pub type FnPowerShell_Auto_AddParameter_String =
+    unsafe extern "system" fn(handle: PowerShellHandle, parameterName: *const libc::c_char) -> PowerShellHandle;
 
-pub type FnPowerShell_Auto_AddScript_String = unsafe extern "system" fn(handle: PowerShellHandle, script: *const libc::c_char) -> PowerShellHandle;
+pub type FnPowerShell_Auto_AddScript_String =
+    unsafe extern "system" fn(handle: PowerShellHandle, script: *const libc::c_char) -> PowerShellHandle;
 
-pub type FnPowerShell_Auto_AddScript_String_Bool = unsafe extern "system" fn(handle: PowerShellHandle, script: *const libc::c_char, useLocalScope: i32) -> PowerShellHandle;
+pub type FnPowerShell_Auto_AddScript_String_Bool = unsafe extern "system" fn(
+    handle: PowerShellHandle,
+    script: *const libc::c_char,
+    useLocalScope: i32,
+) -> PowerShellHandle;
 
-pub type FnPowerShell_Auto_AddStatement_NoArgs = unsafe extern "system" fn(handle: PowerShellHandle) -> PowerShellHandle;
+pub type FnPowerShell_Auto_AddStatement_NoArgs =
+    unsafe extern "system" fn(handle: PowerShellHandle) -> PowerShellHandle;
 
-pub type FnPowerShell_Auto_CreateNestedPowerShell_NoArgs = unsafe extern "system" fn(handle: PowerShellHandle) -> PowerShellHandle;
+pub type FnPowerShell_Auto_CreateNestedPowerShell_NoArgs =
+    unsafe extern "system" fn(handle: PowerShellHandle) -> PowerShellHandle;
 
 pub type FnPowerShell_Auto_Dispose_NoArgs = unsafe extern "system" fn(handle: PowerShellHandle);
 
@@ -181,14 +213,30 @@ impl Bindings {
             invoke_static_member_json_fn: unsafe { std::mem::transmute(api.invoke_static_member_json_fn) },
             gc_handle_free_fn: unsafe { std::mem::transmute(api.gc_handle_free_fn) },
             marshal_free_co_task_mem_fn: unsafe { std::mem::transmute(api.marshal_free_co_task_mem_fn) },
-            power_shell_auto_add_command_string_fn: unsafe { std::mem::transmute(api.power_shell_auto_add_command_string_fn) },
-            power_shell_auto_add_command_string_bool_fn: unsafe { std::mem::transmute(api.power_shell_auto_add_command_string_bool_fn) },
-            power_shell_auto_add_parameter_string_fn: unsafe { std::mem::transmute(api.power_shell_auto_add_parameter_string_fn) },
-            power_shell_auto_add_script_string_fn: unsafe { std::mem::transmute(api.power_shell_auto_add_script_string_fn) },
-            power_shell_auto_add_script_string_bool_fn: unsafe { std::mem::transmute(api.power_shell_auto_add_script_string_bool_fn) },
-            power_shell_auto_add_statement_no_args_fn: unsafe { std::mem::transmute(api.power_shell_auto_add_statement_no_args_fn) },
-            power_shell_auto_create_nested_power_shell_no_args_fn: unsafe { std::mem::transmute(api.power_shell_auto_create_nested_power_shell_no_args_fn) },
-            power_shell_auto_dispose_no_args_fn: unsafe { std::mem::transmute(api.power_shell_auto_dispose_no_args_fn) },
+            power_shell_auto_add_command_string_fn: unsafe {
+                std::mem::transmute(api.power_shell_auto_add_command_string_fn)
+            },
+            power_shell_auto_add_command_string_bool_fn: unsafe {
+                std::mem::transmute(api.power_shell_auto_add_command_string_bool_fn)
+            },
+            power_shell_auto_add_parameter_string_fn: unsafe {
+                std::mem::transmute(api.power_shell_auto_add_parameter_string_fn)
+            },
+            power_shell_auto_add_script_string_fn: unsafe {
+                std::mem::transmute(api.power_shell_auto_add_script_string_fn)
+            },
+            power_shell_auto_add_script_string_bool_fn: unsafe {
+                std::mem::transmute(api.power_shell_auto_add_script_string_bool_fn)
+            },
+            power_shell_auto_add_statement_no_args_fn: unsafe {
+                std::mem::transmute(api.power_shell_auto_add_statement_no_args_fn)
+            },
+            power_shell_auto_create_nested_power_shell_no_args_fn: unsafe {
+                std::mem::transmute(api.power_shell_auto_create_nested_power_shell_no_args_fn)
+            },
+            power_shell_auto_dispose_no_args_fn: unsafe {
+                std::mem::transmute(api.power_shell_auto_dispose_no_args_fn)
+            },
             power_shell_auto_stop_no_args_fn: unsafe { std::mem::transmute(api.power_shell_auto_stop_no_args_fn) },
         })
     }
