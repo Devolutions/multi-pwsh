@@ -10,9 +10,23 @@ This file is guidance for AI/code agents working in this repository.
 
 ## Baseline
 
-- .NET SDK pinned in `global.json` (currently `8.0.418`).
+- .NET SDK pinned in `global.json` (currently `8.0.400` with `latestPatch` roll-forward).
 - .NET target framework is `net8.0` in `dotnet/Bindings.csproj`.
 - Rust crate uses edition 2018.
+
+## Pre-PR checklist (match CI lint job)
+
+Run these before opening a PR to avoid lint failures:
+
+```powershell
+rustup toolchain install stable --profile minimal
+rustup default stable
+rustup component add rustfmt clippy --toolchain stable
+cargo fmt --all --check
+cargo clippy --workspace --all-targets
+```
+
+If `cargo fmt --all --check` fails, run `cargo fmt --all` and re-run the check.
 
 ## Required verification
 
@@ -21,8 +35,8 @@ Run these after meaningful code changes:
 ```powershell
 cargo build --all-targets
 cargo test --all-targets
-dotnet build pwsh-host-rs.sln
-dotnet test pwsh-host-rs.sln --no-build
+dotnet build dotnet/Bindings.csproj
+dotnet test dotnet/Bindings.csproj --no-build
 ```
 
 If dependency changes are made in `dotnet/Bindings.csproj`, also run:
@@ -48,4 +62,11 @@ dotnet list dotnet/Bindings.csproj package --vulnerable --include-transitive
 ## Operational notes
 
 - Tests and runtime behavior expect `pwsh` to be resolvable from `PATH`.
+- CI installs PowerShell `stable`/`lts` (7.4.x) and that matches `Discover-Bindings.ps1` requirements.
+- If your default `pwsh` is not 7.4.x, set `PwshExePath` before verification commands, for example:
+
+```powershell
+$env:PwshExePath = "$HOME/.pwsh/bin/pwsh-7.4"
+```
+
 - For .NET 8 compatibility with current PowerShell SDK dependency chain, `UseRidGraph` is intentionally enabled.

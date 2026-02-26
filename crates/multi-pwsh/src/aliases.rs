@@ -135,10 +135,7 @@ fn create_windows_cmd_alias(target: &Path, alias_path: &Path) -> Result<()> {
         .to_str()
         .ok_or_else(|| MultiPwshError::AliasCreation("target path is not valid UTF-8".to_string()))?;
 
-    let script = format!(
-        "@echo off\r\n\"{}\" %*\r\nexit /b %ERRORLEVEL%\r\n",
-        target_string
-    );
+    let script = format!("@echo off\r\n\"{}\" %*\r\nexit /b %ERRORLEVEL%\r\n", target_string);
 
     fs::write(alias_path, script).map_err(|error| {
         MultiPwshError::AliasCreation(format!(
