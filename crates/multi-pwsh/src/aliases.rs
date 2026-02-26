@@ -50,6 +50,36 @@ pub fn create_or_update_alias(
     Ok(alias_path)
 }
 
+pub fn remove_alias(layout: &InstallLayout, os: HostOs, alias_command: &str) -> Result<bool> {
+    let alias_path = layout.bin_dir().join(alias_file_name_from_command(alias_command, os));
+    let mut removed = false;
+
+    if alias_path.exists() {
+        fs::remove_file(&alias_path)?;
+        removed = true;
+    }
+
+    let mut metadata = read_alias_metadata(layout)?;
+    if metadata.remove(alias_command).is_some() {
+        write_alias_metadata(layout, metadata)?;
+        removed = true;
+    }
+
+    Ok(removed)
+}
+
+pub fn parse_alias_command_line(alias_command: &str) -> Option<MajorMinor> {
+    let line = alias_command.strip_prefix("pwsh-")?;
+    let parts: Vec<&str> = line.split('.').collect();
+    if parts.len() != 2 {
+        return None;
+    }
+
+    let major = parts[0].parse::<u64>().ok()?;
+    let minor = parts[1].parse::<u64>().ok()?;
+    Some(MajorMinor { major, minor })
+}
+
 pub fn read_alias_metadata(layout: &InstallLayout) -> Result<HashMap<String, String>> {
     let path = layout.aliases_file();
     if !path.exists() {
@@ -70,9 +100,13 @@ fn write_alias_metadata(layout: &InstallLayout, aliases: HashMap<String, String>
 }
 
 fn alias_file_name(line: MajorMinor, os: HostOs) -> String {
+    alias_file_name_from_command(&alias_command_name(line), os)
+}
+
+fn alias_file_name_from_command(alias_command: &str, os: HostOs) -> String {
     match os {
-        HostOs::Windows => format!("{}.cmd", alias_command_name(line)),
-        HostOs::Linux | HostOs::Macos => alias_command_name(line),
+        HostOs::Windows => format!("{}.cmd", alias_command),
+        HostOs::Linux | HostOs::Macos => alias_command.to_string(),
     }
 }
 
@@ -140,5 +174,20 @@ mod tests {
         assert_eq!(alias_command_name(line), "pwsh-7.4");
         assert_eq!(alias_file_name(line, HostOs::Linux), "pwsh-7.4");
         assert_eq!(alias_file_name(line, HostOs::Windows), "pwsh-7.4.cmd");
+    }
+
+    #[test]
+    fn parses_alias_line() {
+        let line = parse_alias_command_line("pwsh-7.5").unwrap();
+        assert_eq!(line.major, 7);
+        assert_eq!(line.minor, 5);
+    }
+
+    #[test]
+    fn rejects_invalid_alias_line() {
+        assert!(parse_alias_command_line("pwsh").is_none());
+        assert!(parse_alias_command_line("pwsh-7").is_none());
+        assert!(parse_alias_command_line("pwsh-7.5.1").is_none());
+        assert!(parse_alias_command_line("not-pwsh-7.5").is_none());
     }
 }

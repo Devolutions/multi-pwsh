@@ -49,6 +49,15 @@ cargo build --all-targets
 dotnet build pwsh-host-rs.sln
 ```
 
+## Build smaller release binaries
+
+The default `release` profile is tuned for smaller binaries. Build `pwsh-host-cli` and `multi-pwsh` with:
+
+```powershell
+cargo build --release -p pwsh-host-cli --bin pwsh-host
+cargo build --release -p multi-pwsh --bin multi-pwsh
+```
+
 If PowerShell 7.4 is not in `PATH`, pass it explicitly:
 
 ```powershell
