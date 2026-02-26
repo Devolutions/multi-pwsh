@@ -1,199 +1,10 @@
 #![allow(dead_code)]
 
+mod bindings_generated;
+
 use std::ffi::{CStr, CString};
 
-use crate::delegate_loader::{AssemblyDelegateLoader, MethodWithUnknownSignature};
-use crate::error::Error;
-use crate::loader::get_assembly_delegate_loader;
-use crate::pdcstr;
-use crate::pdcstring::{PdCStr, PdCString};
-
-pub type PowerShellHandle = *mut libc::c_void;
-
-pub type FnPowerShellCreate = unsafe extern "system" fn() -> PowerShellHandle;
-
-pub type FnPowerShellAddArgumentString =
-    unsafe extern "system" fn(handle: PowerShellHandle, argument: *const libc::c_char);
-
-pub type FnPowerShellAddParameterString =
-    unsafe extern "system" fn(handle: PowerShellHandle, name: *const libc::c_char, value: *const libc::c_char);
-
-pub type FnPowerShellAddParameterInt =
-    unsafe extern "system" fn(handle: PowerShellHandle, name: *const libc::c_char, value: i32);
-
-pub type FnPowerShellAddParameterLong =
-    unsafe extern "system" fn(handle: PowerShellHandle, name: *const libc::c_char, value: i64);
-
-pub type FnPowerShellAddCommand = unsafe extern "system" fn(handle: PowerShellHandle, command: *const libc::c_char);
-
-pub type FnPowerShellAddScript = unsafe extern "system" fn(handle: PowerShellHandle, script: *const libc::c_char);
-
-pub type FnPowerShellAddStatement = unsafe extern "system" fn(handle: PowerShellHandle) -> PowerShellHandle;
-
-pub type FnPowerShellInvoke = unsafe extern "system" fn(handle: PowerShellHandle);
-
-pub type FnPowerShellClear = unsafe extern "system" fn(handle: PowerShellHandle);
-
-pub type FnPowerShellExportToXml =
-    unsafe extern "system" fn(handle: PowerShellHandle, name: *const libc::c_char) -> *const libc::c_char;
-
-pub type FnPowerShellExportToJson =
-    unsafe extern "system" fn(handle: PowerShellHandle, name: *const libc::c_char) -> *const libc::c_char;
-
-pub type FnPowerShellExportToString =
-    unsafe extern "system" fn(handle: PowerShellHandle, name: *const libc::c_char) -> *const libc::c_char;
-
-pub type FnMarshalFreeCoTaskMem = unsafe extern "system" fn(ptr: *mut libc::c_void);
-
-struct Bindings {
-    create_fn: FnPowerShellCreate,
-    add_argument_string_fn: FnPowerShellAddArgumentString,
-    add_parameter_string_fn: FnPowerShellAddParameterString,
-    add_parameter_int_fn: FnPowerShellAddParameterInt,
-    add_parameter_long_fn: FnPowerShellAddParameterLong,
-    add_command_fn: FnPowerShellAddCommand,
-    add_script_fn: FnPowerShellAddScript,
-    add_statement_fn: FnPowerShellAddStatement,
-    invoke_fn: FnPowerShellInvoke,
-    clear_fn: FnPowerShellClear,
-    export_to_xml_fn: FnPowerShellExportToXml,
-    export_to_json_fn: FnPowerShellExportToJson,
-    export_to_string_fn: FnPowerShellExportToString,
-    marshal_free_co_task_mem_fn: FnMarshalFreeCoTaskMem,
-}
-
-impl Bindings {
-    pub fn new() -> Result<Self, Error> {
-        let fn_loader = get_assembly_delegate_loader();
-        Self::new_with_loader(&fn_loader)
-    }
-
-    pub fn new_with_loader(fn_loader: &AssemblyDelegateLoader<PdCString>) -> Result<Self, Error> {
-        fn get_function_pointer(
-            fn_loader: &AssemblyDelegateLoader<PdCString>,
-            type_name: impl AsRef<PdCStr>,
-            method_name: impl AsRef<PdCStr>,
-        ) -> Result<MethodWithUnknownSignature, Error> {
-            fn_loader.get_function_pointer_for_unmanaged_callers_only_method(type_name, method_name)
-        }
-
-        let pwsh = Self {
-            create_fn: {
-                let fn_ptr = get_function_pointer(
-                    fn_loader,
-                    pdcstr!("NativeHost.Bindings, Bindings"),
-                    pdcstr!("PowerShell_Create"),
-                )?;
-                unsafe { std::mem::transmute(fn_ptr) }
-            },
-            add_argument_string_fn: {
-                let fn_ptr = get_function_pointer(
-                    fn_loader,
-                    pdcstr!("NativeHost.Bindings, Bindings"),
-                    pdcstr!("PowerShell_AddArgument_String"),
-                )?;
-                unsafe { std::mem::transmute(fn_ptr) }
-            },
-            add_parameter_string_fn: {
-                let fn_ptr = get_function_pointer(
-                    fn_loader,
-                    pdcstr!("NativeHost.Bindings, Bindings"),
-                    pdcstr!("PowerShell_AddParameter_String"),
-                )?;
-                unsafe { std::mem::transmute(fn_ptr) }
-            },
-            add_parameter_int_fn: {
-                let fn_ptr = get_function_pointer(
-                    fn_loader,
-                    pdcstr!("NativeHost.Bindings, Bindings"),
-                    pdcstr!("PowerShell_AddParameter_Int"),
-                )?;
-                unsafe { std::mem::transmute(fn_ptr) }
-            },
-            add_parameter_long_fn: {
-                let fn_ptr = get_function_pointer(
-                    fn_loader,
-                    pdcstr!("NativeHost.Bindings, Bindings"),
-                    pdcstr!("PowerShell_AddParameter_Long"),
-                )?;
-                unsafe { std::mem::transmute(fn_ptr) }
-            },
-            add_command_fn: {
-                let fn_ptr = get_function_pointer(
-                    fn_loader,
-                    pdcstr!("NativeHost.Bindings, Bindings"),
-                    pdcstr!("PowerShell_AddCommand"),
-                )?;
-                unsafe { std::mem::transmute(fn_ptr) }
-            },
-            add_script_fn: {
-                let fn_ptr = get_function_pointer(
-                    fn_loader,
-                    pdcstr!("NativeHost.Bindings, Bindings"),
-                    pdcstr!("PowerShell_AddScript"),
-                )?;
-                unsafe { std::mem::transmute(fn_ptr) }
-            },
-            add_statement_fn: {
-                let fn_ptr = get_function_pointer(
-                    fn_loader,
-                    pdcstr!("NativeHost.Bindings, Bindings"),
-                    pdcstr!("PowerShell_AddStatement"),
-                )?;
-                unsafe { std::mem::transmute(fn_ptr) }
-            },
-            invoke_fn: {
-                let fn_ptr = get_function_pointer(
-                    fn_loader,
-                    pdcstr!("NativeHost.Bindings, Bindings"),
-                    pdcstr!("PowerShell_Invoke"),
-                )?;
-                unsafe { std::mem::transmute(fn_ptr) }
-            },
-            clear_fn: {
-                let fn_ptr = get_function_pointer(
-                    fn_loader,
-                    pdcstr!("NativeHost.Bindings, Bindings"),
-                    pdcstr!("PowerShell_Clear"),
-                )?;
-                unsafe { std::mem::transmute(fn_ptr) }
-            },
-            export_to_xml_fn: {
-                let fn_ptr = get_function_pointer(
-                    fn_loader,
-                    pdcstr!("NativeHost.Bindings, Bindings"),
-                    pdcstr!("PowerShell_ExportToXml"),
-                )?;
-                unsafe { std::mem::transmute(fn_ptr) }
-            },
-            export_to_json_fn: {
-                let fn_ptr = get_function_pointer(
-                    fn_loader,
-                    pdcstr!("NativeHost.Bindings, Bindings"),
-                    pdcstr!("PowerShell_ExportToJson"),
-                )?;
-                unsafe { std::mem::transmute(fn_ptr) }
-            },
-            export_to_string_fn: {
-                let fn_ptr = get_function_pointer(
-                    fn_loader,
-                    pdcstr!("NativeHost.Bindings, Bindings"),
-                    pdcstr!("PowerShell_ExportToString"),
-                )?;
-                unsafe { std::mem::transmute(fn_ptr) }
-            },
-            marshal_free_co_task_mem_fn: {
-                let fn_ptr = get_function_pointer(
-                    fn_loader,
-                    pdcstr!("NativeHost.Bindings, Bindings"),
-                    pdcstr!("Marshal_FreeCoTaskMem"),
-                )?;
-                unsafe { std::mem::transmute(fn_ptr) }
-            },
-        };
-        Ok(pwsh)
-    }
-}
+use self::bindings_generated::{Bindings, PowerShellHandle};
 
 pub struct PowerShell {
     inner: Bindings,
@@ -304,6 +115,65 @@ impl PowerShell {
             let rstr = String::from_utf8_lossy(cstr.to_bytes()).to_string();
             self.marshal_free_co_task_mem(cstr_ptr as *mut libc::c_void);
             rstr
+        }
+    }
+
+    pub fn invoke_member_json(&self, member_name: &str, arguments_json: &str) -> String {
+        unsafe {
+            let member_name_cstr = CString::new(member_name).unwrap();
+            let arguments_json_cstr = CString::new(arguments_json).unwrap();
+            let cstr_ptr = (self.inner.invoke_member_json_fn)(
+                self.handle,
+                member_name_cstr.as_ptr(),
+                arguments_json_cstr.as_ptr(),
+            );
+            let cstr = CStr::from_ptr(cstr_ptr);
+            let rstr = String::from_utf8_lossy(cstr.to_bytes()).to_string();
+            self.marshal_free_co_task_mem(cstr_ptr as *mut libc::c_void);
+            rstr
+        }
+    }
+
+    pub fn get_property_json(&self, property_name: &str) -> String {
+        unsafe {
+            let property_name_cstr = CString::new(property_name).unwrap();
+            let cstr_ptr = (self.inner.get_property_json_fn)(self.handle, property_name_cstr.as_ptr());
+            let cstr = CStr::from_ptr(cstr_ptr);
+            let rstr = String::from_utf8_lossy(cstr.to_bytes()).to_string();
+            self.marshal_free_co_task_mem(cstr_ptr as *mut libc::c_void);
+            rstr
+        }
+    }
+
+    pub fn set_property_json(&self, property_name: &str, value_json: &str) -> String {
+        unsafe {
+            let property_name_cstr = CString::new(property_name).unwrap();
+            let value_json_cstr = CString::new(value_json).unwrap();
+            let cstr_ptr =
+                (self.inner.set_property_json_fn)(self.handle, property_name_cstr.as_ptr(), value_json_cstr.as_ptr());
+            let cstr = CStr::from_ptr(cstr_ptr);
+            let rstr = String::from_utf8_lossy(cstr.to_bytes()).to_string();
+            self.marshal_free_co_task_mem(cstr_ptr as *mut libc::c_void);
+            rstr
+        }
+    }
+
+    pub fn invoke_static_member_json(&self, member_name: &str, arguments_json: &str) -> String {
+        unsafe {
+            let member_name_cstr = CString::new(member_name).unwrap();
+            let arguments_json_cstr = CString::new(arguments_json).unwrap();
+            let cstr_ptr =
+                (self.inner.invoke_static_member_json_fn)(member_name_cstr.as_ptr(), arguments_json_cstr.as_ptr());
+            let cstr = CStr::from_ptr(cstr_ptr);
+            let rstr = String::from_utf8_lossy(cstr.to_bytes()).to_string();
+            self.marshal_free_co_task_mem(cstr_ptr as *mut libc::c_void);
+            rstr
+        }
+    }
+
+    pub unsafe fn free_handle(&self, handle: PowerShellHandle) {
+        unsafe {
+            (self.inner.gc_handle_free_fn)(handle);
         }
     }
 

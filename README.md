@@ -48,6 +48,26 @@ cargo build --all-targets
 dotnet build pwsh-host-rs.sln
 ```
 
+If PowerShell 7.4 is not in `PATH`, pass it explicitly:
+
+```powershell
+dotnet build pwsh-host-rs.sln -p:PwshExePath="C:\Program Files\PowerShell\7.4\pwsh.exe"
+```
+
+## Discover larger PowerShell SDK surface
+
+Generate reflection-based wrapper candidates and a generated contract with a matching PowerShell 7.4 runtime:
+
+```powershell
+& "C:\Program Files\PowerShell\7.4\pwsh.exe" -NoLogo -NoProfile -File ./scripts/Discover-Bindings.ps1
+```
+
+The build uses discovery output by default. To force an explicit generated contract path:
+
+```powershell
+dotnet build pwsh-host-rs.sln -p:PwshExePath="C:\Program Files\PowerShell\7.4\pwsh.exe" -p:BindingsContractPath="$(Resolve-Path ./dotnet/obj/bindings.ps74.discovered.contract.json)"
+```
+
 ## Run `pwsh-host`
 
 ```powershell
@@ -119,5 +139,8 @@ assert_eq!(date_json, "\"2019-12-31T19:00:00-05:00\"");
 
 ## Notes
 
-- The .NET bindings package currently uses `Microsoft.PowerShell.SDK` `7.2.24` for compatibility with this repository’s interop layer.
+- The unmanaged bindings function-table contract is versioned as `PS74` (for PowerShell 7.4 on .NET 8 LTS).
+- The .NET bindings package baseline uses `Microsoft.PowerShell.SDK` `7.4.13`, and should track the latest compatible `7.4.x` patch.
 - `dotnet/Bindings.csproj` enables `UseRidGraph` to keep runtime-identifier compatibility under .NET 8.
+- `scripts/Discover-Bindings.ps1` emits a generated contract (`dotnet/obj/bindings.ps74.discovered.contract.json`), a surface report (`dotnet/obj/powershell.ps74.surface.json`), and wrapper candidates (`dotnet/obj/Bindings.Discovered.Generated.cs`).
+- `scripts/Generate-Bindings.ps1` consumes a generated contract and emits `dotnet/Bindings.Generated.cs` plus `crates/pwsh-host/src/bindings/bindings_generated.rs`.

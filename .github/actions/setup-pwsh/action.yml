@@ -1,0 +1,71 @@
+name: "Setup PowerShell Core (pwsh)"
+description: "Download and install any version of PowerShell Core on GitHub Actions runners (Windows, macOS, Linux)"
+author: "AwakeCoding"
+branding:
+  icon: "terminal"
+  color: "blue"
+
+inputs:
+  version:
+    description: |
+      The version of PowerShell to install.
+      - 'latest': Latest release from /releases/latest (currently 7.5.x)
+      - 'stable' or 'lts': Latest LTS/stable release (currently 7.4.x)
+      - 'preview': Latest preview/RC release
+      - Specific version number (e.g., '7.4.6', '7.5.4')
+    required: false
+    default: "latest"
+
+  architecture:
+    description: |
+      The architecture to install.
+      - 'x64': 64-bit Intel/AMD
+      - 'x86': 32-bit (Windows only)
+      - 'arm64': ARM 64-bit
+      - 'arm32': ARM 32-bit (Linux only)
+      - 'auto': Automatically detect (default)
+    required: false
+    default: "auto"
+
+  github-token:
+    description: |
+      GitHub token for API authentication (increases rate limit).
+    required: false
+    default: ""
+
+outputs:
+  version:
+    description: "The version of PowerShell that was installed"
+    value: ${{ steps.install-pwsh.outputs.version }}
+
+  path:
+    description: "The installation path of PowerShell"
+    value: ${{ steps.install-pwsh.outputs.path }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install PowerShell Core
+      id: install-pwsh
+      shell: pwsh
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_ARCHITECTURE: ${{ inputs.architecture }}
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: |
+        $ErrorActionPreference = 'Stop'
+        & "${{ github.action_path }}/scripts/Install-PowerShell.ps1" `
+          -Version $env:INPUT_VERSION `
+          -Architecture $env:INPUT_ARCHITECTURE
+
+    - name: Verify Installation
+      shell: pwsh
+      run: |
+        $pwshPath = "${{ steps.install-pwsh.outputs.path }}"
+        if ($pwshPath) {
+          $pwshExe = if ($IsWindows) { Join-Path $pwshPath "pwsh.exe" } else { Join-Path $pwshPath "pwsh" }
+          if (Test-Path $pwshExe) {
+            Write-Host "✅ PowerShell installed successfully"
+            & $pwshExe -Version
+          }
+        }
