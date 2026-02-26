@@ -1,13 +1,14 @@
 use std::error::Error;
 use std::ffi::{OsStr, OsString};
 use std::fmt::{Display, Formatter};
-use std::time::Duration;
 
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 
 const NAMED_PIPE_COMMAND_FLAG: &str = "-namedpipecommand";
 const ENCODED_COMMAND_FLAG: &str = "-EncodedCommand";
-const PIPE_CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
+#[cfg(windows)]
+const PIPE_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+#[cfg(windows)]
 const MAX_COMMAND_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug)]
@@ -126,7 +127,7 @@ fn read_named_pipe_command(pipe_name: &OsStr) -> Result<String, NamedPipeCommand
     use std::fs::OpenOptions;
     use std::io::Read;
     use std::thread::sleep;
-    use std::time::Instant;
+    use std::time::{Duration, Instant};
 
     let pipe_name = pipe_name.to_string_lossy();
     if pipe_name.trim().is_empty() {
