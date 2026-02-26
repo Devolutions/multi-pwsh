@@ -2,7 +2,6 @@ bin/
 obj/
 build/
 target/
-Cargo.lock
 Makefile
 CMakeCache.txt
 CMakeFiles/
