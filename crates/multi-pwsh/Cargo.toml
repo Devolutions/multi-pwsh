@@ -20,3 +20,6 @@ tar = "0.4"
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
 home = "0.5"
 tempfile = "3.12"
+
+[build-dependencies]
+winresource = "0.1"
