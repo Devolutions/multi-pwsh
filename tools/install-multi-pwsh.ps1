@@ -4,7 +4,7 @@ param(
     [string]$Version = 'latest',
 
     [Parameter(Mandatory = $false)]
-    [string]$Owner = 'awakecoding',
+    [string]$Owner = 'Devolutions',
 
     [Parameter(Mandatory = $false)]
     [string]$Repository = 'pwsh-host-rs'

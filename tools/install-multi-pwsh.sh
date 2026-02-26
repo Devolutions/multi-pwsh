@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_owner="awakecoding"
+repo_owner="Devolutions"
 repo_name="pwsh-host-rs"
 
 version="${1:-latest}"
