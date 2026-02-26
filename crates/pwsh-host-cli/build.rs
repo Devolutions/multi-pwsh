@@ -18,7 +18,5 @@ fn main() {
         .set("FileVersion", &version)
         .set("ProductVersion", &version);
 
-    resource
-        .compile()
-        .expect("failed to compile Windows resources");
+    resource.compile().expect("failed to compile Windows resources");
 }
