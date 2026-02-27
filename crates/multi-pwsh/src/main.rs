@@ -84,8 +84,7 @@ fn parse_release_selection_options(args: &[String]) -> Result<ReleaseSelectionOp
             }
             _ => {
                 return Err(MultiPwshError::InvalidArguments(
-                    "expected optional --arch <value> and/or --include-prerelease"
-                        .to_string(),
+                    "expected optional --arch <value> and/or --include-prerelease".to_string(),
                 ));
             }
         }
@@ -207,9 +206,7 @@ fn parse_list_option(args: &[String]) -> Result<ListOption> {
     }
 
     if available {
-        return Ok(ListOption::Available {
-            include_prerelease,
-        });
+        return Ok(ListOption::Available { include_prerelease });
     }
 
     Err(MultiPwshError::InvalidArguments(
@@ -343,9 +340,7 @@ fn run_list(option: ListOption) -> Result<()> {
 
             Ok(())
         }
-        ListOption::Available {
-            include_prerelease,
-        } => {
+        ListOption::Available { include_prerelease } => {
             let token = env::var("GITHUB_TOKEN").ok();
             let release_client = ReleaseClient::new(token)?;
             let versions = release_client.list_available_versions(include_prerelease)?;
@@ -560,7 +555,11 @@ mod tests {
 
     #[test]
     fn parse_release_selection_options_accepts_arch_and_prerelease() {
-        let args = vec!["--arch".to_string(), "x64".to_string(), "--include-prerelease".to_string()];
+        let args = vec![
+            "--arch".to_string(),
+            "x64".to_string(),
+            "--include-prerelease".to_string(),
+        ];
         let options = parse_release_selection_options(&args).unwrap();
         assert!(options.include_prerelease);
         assert!(matches!(options.arch, Some(HostArch::X64)));

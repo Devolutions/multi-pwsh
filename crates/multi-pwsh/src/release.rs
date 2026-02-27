@@ -53,9 +53,7 @@ impl ReleaseClient {
         match selector {
             VersionSelector::Major(major) => self.resolve_latest_in_major(major, os, arch, include_prerelease),
             VersionSelector::Exact(version) => self.resolve_exact(version, os, arch),
-            VersionSelector::MajorMinor(line) => {
-                self.resolve_latest_in_line(line, os, arch, include_prerelease)
-            }
+            VersionSelector::MajorMinor(line) => self.resolve_latest_in_line(line, os, arch, include_prerelease),
         }
     }
 

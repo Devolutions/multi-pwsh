@@ -35,7 +35,10 @@ fn update_accepts_include_prerelease_flag() {
         .output()
         .expect("failed to run multi-pwsh test binary");
 
-    assert!(!output.status.success(), "expected command to fail on invalid line selector");
+    assert!(
+        !output.status.success(),
+        "expected command to fail on invalid line selector"
+    );
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
