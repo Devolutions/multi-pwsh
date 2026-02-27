@@ -10,10 +10,11 @@ use crate::layout::InstallLayout;
 use crate::platform::HostOs;
 use crate::versions::MajorMinor;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AliasSelector {
     Major(u64),
     MajorMinor(MajorMinor),
+    Exact(Version),
 }
 
 pub fn create_or_update_alias(
@@ -36,6 +37,15 @@ pub fn create_or_update_major_alias(
     create_or_update_alias_with_selector(layout, os, AliasSelector::Major(major), version, target)
 }
 
+pub fn create_or_update_patch_alias(
+    layout: &InstallLayout,
+    os: HostOs,
+    version: &Version,
+    target: &Path,
+) -> Result<PathBuf> {
+    create_or_update_alias_with_selector(layout, os, AliasSelector::Exact(version.clone()), version, target)
+}
+
 fn create_or_update_alias_with_selector(
     layout: &InstallLayout,
     os: HostOs,
@@ -45,8 +55,8 @@ fn create_or_update_alias_with_selector(
 ) -> Result<PathBuf> {
     fs::create_dir_all(layout.bin_dir())?;
 
-    let alias_command = alias_command_name(selector);
-    let alias_file = alias_file_name(selector, os);
+    let alias_command = alias_command_name(&selector);
+    let alias_file = alias_file_name(&selector, os);
     let alias_path = layout.bin_dir().join(alias_file);
 
     if os == HostOs::Windows {
@@ -85,9 +95,9 @@ pub fn remove_alias(layout: &InstallLayout, os: HostOs, alias_command: &str) -> 
         removed = true;
     }
 
-    let mut metadata = read_alias_metadata(layout)?;
-    if metadata.remove(alias_command).is_some() {
-        write_alias_metadata(layout, metadata)?;
+    let mut document = read_alias_document(layout)?;
+    if document.aliases.remove(alias_command).is_some() {
+        write_alias_document(layout, &document)?;
         removed = true;
     }
 
@@ -96,6 +106,10 @@ pub fn remove_alias(layout: &InstallLayout, os: HostOs, alias_command: &str) -> 
 
 pub fn parse_alias_command_selector(alias_command: &str) -> Option<AliasSelector> {
     let selector = alias_command.strip_prefix("pwsh-")?;
+
+    if let Ok(version) = Version::parse(selector) {
+        return Some(AliasSelector::Exact(version));
+    }
 
     let parts: Vec<&str> = selector.split('.').collect();
     if parts.len() == 1 {
@@ -113,25 +127,67 @@ pub fn parse_alias_command_selector(alias_command: &str) -> Option<AliasSelector
 }
 
 pub fn read_alias_metadata(layout: &InstallLayout) -> Result<HashMap<String, String>> {
+    Ok(read_alias_document(layout)?.aliases)
+}
+
+fn write_alias_metadata(layout: &InstallLayout, aliases: HashMap<String, String>) -> Result<()> {
+    let mut document = read_alias_document(layout)?;
+    document.aliases = aliases;
+    write_alias_document(layout, &document)?;
+    Ok(())
+}
+
+pub fn read_minor_pin(layout: &InstallLayout, line: MajorMinor) -> Result<Option<Version>> {
+    let document = read_alias_document(layout)?;
+    match document.pins.get(&line_pin_key(line)) {
+        Some(value) => Ok(Some(Version::parse(value)?)),
+        None => Ok(None),
+    }
+}
+
+pub fn read_minor_pins(layout: &InstallLayout) -> Result<HashMap<String, String>> {
+    Ok(read_alias_document(layout)?.pins)
+}
+
+pub fn set_minor_pin(layout: &InstallLayout, line: MajorMinor, version: Option<Version>) -> Result<()> {
+    let mut document = read_alias_document(layout)?;
+    let key = line_pin_key(line);
+
+    match version {
+        Some(version) => {
+            document.pins.insert(key, version.to_string());
+        }
+        None => {
+            document.pins.remove(&key);
+        }
+    }
+
+    write_alias_document(layout, &document)
+}
+
+fn line_pin_key(line: MajorMinor) -> String {
+    format!("{}.{}", line.major, line.minor)
+}
+
+fn read_alias_document(layout: &InstallLayout) -> Result<AliasMetadata> {
     let path = layout.aliases_file();
     if !path.exists() {
-        return Ok(HashMap::new());
+        return Ok(AliasMetadata::default());
     }
 
     let content = fs::read_to_string(path)?;
     let metadata: AliasMetadata = serde_json::from_str(&content)?;
-    Ok(metadata.aliases)
+    Ok(metadata)
 }
 
-fn write_alias_metadata(layout: &InstallLayout, aliases: HashMap<String, String>) -> Result<()> {
+fn write_alias_document(layout: &InstallLayout, metadata: &AliasMetadata) -> Result<()> {
     let path = layout.aliases_file();
-    let metadata = AliasMetadata { aliases };
-    let payload = serde_json::to_string_pretty(&metadata)?;
+    let payload = serde_json::to_string_pretty(metadata)?;
     fs::write(path, payload)?;
     Ok(())
 }
 
-fn alias_file_name(selector: AliasSelector, os: HostOs) -> String {
+fn alias_file_name(selector: &AliasSelector, os: HostOs) -> String {
     alias_file_name_from_command(&alias_command_name(selector), os)
 }
 
@@ -142,10 +198,11 @@ fn alias_file_name_from_command(alias_command: &str, os: HostOs) -> String {
     }
 }
 
-fn alias_command_name(selector: AliasSelector) -> String {
+fn alias_command_name(selector: &AliasSelector) -> String {
     match selector {
         AliasSelector::Major(major) => format!("pwsh-{}", major),
         AliasSelector::MajorMinor(line) => format!("pwsh-{}.{}", line.major, line.minor),
+        AliasSelector::Exact(version) => format!("pwsh-{}", version),
     }
 }
 
@@ -191,9 +248,12 @@ fn create_windows_cmd_alias(_target: &Path, _alias_path: &Path) -> Result<()> {
     ))
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 struct AliasMetadata {
+    #[serde(default)]
     aliases: HashMap<String, String>,
+    #[serde(default)]
+    pins: HashMap<String, String>,
 }
 
 #[cfg(test)]
@@ -203,22 +263,22 @@ mod tests {
     #[test]
     fn alias_name_uses_major_minor() {
         let line = MajorMinor { major: 7, minor: 4 };
-        assert_eq!(alias_command_name(AliasSelector::MajorMinor(line)), "pwsh-7.4");
+        assert_eq!(alias_command_name(&AliasSelector::MajorMinor(line)), "pwsh-7.4");
         assert_eq!(
-            alias_file_name(AliasSelector::MajorMinor(line), HostOs::Linux),
+            alias_file_name(&AliasSelector::MajorMinor(line), HostOs::Linux),
             "pwsh-7.4"
         );
         assert_eq!(
-            alias_file_name(AliasSelector::MajorMinor(line), HostOs::Windows),
+            alias_file_name(&AliasSelector::MajorMinor(line), HostOs::Windows),
             "pwsh-7.4.cmd"
         );
     }
 
     #[test]
     fn alias_name_supports_major() {
-        assert_eq!(alias_command_name(AliasSelector::Major(7)), "pwsh-7");
-        assert_eq!(alias_file_name(AliasSelector::Major(7), HostOs::Linux), "pwsh-7");
-        assert_eq!(alias_file_name(AliasSelector::Major(7), HostOs::Windows), "pwsh-7.cmd");
+        assert_eq!(alias_command_name(&AliasSelector::Major(7)), "pwsh-7");
+        assert_eq!(alias_file_name(&AliasSelector::Major(7), HostOs::Linux), "pwsh-7");
+        assert_eq!(alias_file_name(&AliasSelector::Major(7), HostOs::Windows), "pwsh-7.cmd");
     }
 
     #[test]
@@ -234,9 +294,14 @@ mod tests {
     }
 
     #[test]
+    fn parses_alias_exact_selector() {
+        let selector = parse_alias_command_selector("pwsh-7.4.11").unwrap();
+        assert_eq!(selector, AliasSelector::Exact(Version::parse("7.4.11").unwrap()));
+    }
+
+    #[test]
     fn rejects_invalid_alias_selector() {
         assert!(parse_alias_command_selector("pwsh").is_none());
-        assert!(parse_alias_command_selector("pwsh-7.5.1").is_none());
         assert!(parse_alias_command_selector("not-pwsh-7.5").is_none());
     }
 }

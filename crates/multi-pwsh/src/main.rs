@@ -8,23 +8,25 @@ mod versions;
 
 use std::env;
 use std::fs;
+use std::path::PathBuf;
 use std::process;
 
 use semver::Version;
 
 use aliases::{
-    create_or_update_alias, create_or_update_major_alias, parse_alias_command_selector, remove_alias, AliasSelector,
+    create_or_update_alias, create_or_update_major_alias, create_or_update_patch_alias, parse_alias_command_selector,
+    read_minor_pin, read_minor_pins, remove_alias, set_minor_pin, AliasSelector,
 };
 use error::{MultiPwshError, Result};
 use install::ensure_installed;
 use layout::InstallLayout;
 use platform::{HostArch, HostOs};
 use release::ReleaseClient;
-use versions::{parse_exact_version, parse_install_selector, parse_major_minor_selector, MajorMinor};
+use versions::{parse_exact_version, parse_install_selector, parse_major_minor_selector, MajorMinor, VersionSelector};
 
 fn print_usage() {
     eprintln!(
-        "Usage:\n  multi-pwsh install <version|major|major.minor> [--arch <auto|x64|x86|arm64|arm32>] [--include-prerelease]\n  multi-pwsh update <major.minor> [--arch <auto|x64|x86|arm64|arm32>] [--include-prerelease]\n  multi-pwsh uninstall <version> [--force]\n  multi-pwsh list [--available] [--include-prerelease]\n  multi-pwsh doctor --repair-aliases"
+        "Usage:\n  multi-pwsh install <version|major|major.minor|major.minor.x> [--arch <auto|x64|x86|arm64|arm32>] [--include-prerelease]\n  multi-pwsh update <major.minor> [--arch <auto|x64|x86|arm64|arm32>] [--include-prerelease]\n  multi-pwsh uninstall <version> [--force]\n  multi-pwsh list [--available] [--include-prerelease]\n  multi-pwsh alias set <major.minor> <version|latest>\n  multi-pwsh alias unset <major.minor>\n  multi-pwsh doctor --repair-aliases"
     );
 }
 
@@ -41,6 +43,127 @@ enum ListOption {
 fn latest_installed_in_major(layout: &InstallLayout, major: u64) -> Result<Option<Version>> {
     let versions = layout.installed_versions()?;
     Ok(versions.into_iter().find(|version| version.major == major))
+}
+
+fn latest_installed_in_line(layout: &InstallLayout, line: MajorMinor) -> Result<Option<Version>> {
+    let versions = layout.installed_versions()?;
+    Ok(versions
+        .into_iter()
+        .find(|version| version.major == line.major && version.minor == line.minor))
+}
+
+fn sync_minor_alias(layout: &InstallLayout, os: HostOs, line: MajorMinor) -> Result<Option<PathBuf>> {
+    let pinned = read_minor_pin(layout, line)?;
+    let target_version = match pinned {
+        Some(version) => Some(version),
+        None => latest_installed_in_line(layout, line)?,
+    };
+
+    let Some(target_version) = target_version else {
+        let alias_name = format!("pwsh-{}.{}", line.major, line.minor);
+        remove_alias(layout, os, &alias_name)?;
+        return Ok(None);
+    };
+
+    let target = layout.version_executable(&target_version);
+    if !target.exists() {
+        return Ok(None);
+    }
+
+    let path = create_or_update_alias(layout, os, line, &target_version, &target)?;
+    Ok(Some(path))
+}
+
+fn parse_alias_set_target(target: &str) -> Result<Option<Version>> {
+    if target.eq_ignore_ascii_case("latest") {
+        return Ok(None);
+    }
+
+    let version = parse_exact_version(target)?;
+    Ok(Some(version))
+}
+
+fn run_alias(args: &[String]) -> Result<()> {
+    if args.is_empty() {
+        return Err(MultiPwshError::InvalidArguments(
+            "alias requires: set <major.minor> <version|latest> or unset <major.minor>".to_string(),
+        ));
+    }
+
+    let os = HostOs::detect()?;
+    let layout = InstallLayout::new(os)?;
+    layout.ensure_base_dirs()?;
+
+    match args[0].as_str() {
+        "set" => {
+            if args.len() != 3 {
+                return Err(MultiPwshError::InvalidArguments(
+                    "alias set requires: <major.minor> <version|latest>".to_string(),
+                ));
+            }
+
+            let line = parse_major_minor_selector(&args[1])?;
+            let target = parse_alias_set_target(&args[2])?;
+
+            if let Some(version) = target.as_ref() {
+                if version.major != line.major || version.minor != line.minor {
+                    return Err(MultiPwshError::InvalidArguments(format!(
+                        "version {} does not match alias line {}",
+                        version, line
+                    )));
+                }
+            }
+
+            set_minor_pin(&layout, line, target.clone())?;
+
+            let alias_name = format!("pwsh-{}.{}", line.major, line.minor);
+            if let Some(version) = target {
+                let target_path = layout.version_executable(&version);
+                if target_path.exists() {
+                    let alias_path = create_or_update_alias(&layout, os, line, &version, &target_path)?;
+                    println!("Pinned alias {} to {}", alias_name, version);
+                    println!("Updated alias: {}", alias_path.display());
+                } else {
+                    remove_alias(&layout, os, &alias_name)?;
+                    println!(
+                        "Pinned alias {} to {} (target is not currently installed; alias is unresolved)",
+                        alias_name, version
+                    );
+                }
+            } else {
+                let alias_path = sync_minor_alias(&layout, os, line)?;
+                println!("Unpinned alias {} (now follows latest in line)", alias_name);
+                if let Some(path) = alias_path {
+                    println!("Updated alias: {}", path.display());
+                }
+            }
+
+            Ok(())
+        }
+        "unset" => {
+            if args.len() != 2 {
+                return Err(MultiPwshError::InvalidArguments(
+                    "alias unset requires: <major.minor>".to_string(),
+                ));
+            }
+
+            let line = parse_major_minor_selector(&args[1])?;
+            set_minor_pin(&layout, line, None)?;
+
+            let alias_path = sync_minor_alias(&layout, os, line)?;
+            println!(
+                "Removed pin for pwsh-{}.{}, now following latest in line",
+                line.major, line.minor
+            );
+            if let Some(path) = alias_path {
+                println!("Updated alias: {}", path.display());
+            }
+            Ok(())
+        }
+        _ => Err(MultiPwshError::InvalidArguments(
+            "alias requires: set <major.minor> <version|latest> or unset <major.minor>".to_string(),
+        )),
+    }
 }
 
 fn parse_release_selection_options(args: &[String]) -> Result<ReleaseSelectionOptions> {
@@ -106,24 +229,64 @@ fn run_install(selector_input: &str, arch: Option<HostArch>, include_prerelease:
 
     let token = env::var("GITHUB_TOKEN").ok();
     let release_client = ReleaseClient::new(token)?;
-    let release = release_client.resolve_selector(selector, os, arch, include_prerelease)?;
-    let executable_path = ensure_installed(&layout, release_client.http_client(), os, &release)?;
+    let releases = match selector {
+        VersionSelector::MajorMinorWildcard(line) => {
+            release_client.resolve_all_in_line(line, os, arch, include_prerelease)?
+        }
+        _ => vec![release_client.resolve_selector(selector, os, arch, include_prerelease)?],
+    };
 
-    let line = release.version_line();
-    let alias_path = create_or_update_alias(&layout, os, line, &release.version, &executable_path)?;
-    let major_alias_path = latest_installed_in_major(&layout, release.version.major)?
-        .map(|version| {
-            let target = layout.version_executable(&version);
-            create_or_update_major_alias(&layout, os, version.major, &version, &target)
-        })
-        .transpose()?;
+    let mut touched_lines: Vec<MajorMinor> = Vec::new();
+    let mut touched_majors: Vec<u64> = Vec::new();
 
-    println!("Installed PowerShell {}", release.version);
-    println!("Version path: {}", layout.version_dir(&release.version).display());
-    println!("Updated alias: {}", alias_path.display());
-    if let Some(path) = major_alias_path {
-        println!("Updated major alias: {}", path.display());
+    for release in releases {
+        let executable_path = ensure_installed(&layout, release_client.http_client(), os, &release)?;
+        let patch_alias = create_or_update_patch_alias(&layout, os, &release.version, &executable_path)?;
+
+        println!("Installed PowerShell {}", release.version);
+        println!("Version path: {}", layout.version_dir(&release.version).display());
+        println!("Updated patch alias: {}", patch_alias.display());
+
+        let line = release.version_line();
+        if !touched_lines.contains(&line) {
+            touched_lines.push(line);
+        }
+        if !touched_majors.contains(&release.version.major) {
+            touched_majors.push(release.version.major);
+        }
     }
+
+    touched_lines.sort();
+    touched_majors.sort();
+
+    for line in touched_lines {
+        let pinned = read_minor_pin(&layout, line)?;
+        let alias_path = sync_minor_alias(&layout, os, line)?;
+        match alias_path {
+            Some(path) => println!("Updated alias: {}", path.display()),
+            None if pinned.is_some() => {
+                println!(
+                    "Alias pwsh-{}.{} remains pinned but unresolved (target is not installed)",
+                    line.major, line.minor
+                );
+            }
+            None => {}
+        }
+    }
+
+    for major in touched_majors {
+        let major_alias_path = latest_installed_in_major(&layout, major)?
+            .map(|version| {
+                let target = layout.version_executable(&version);
+                create_or_update_major_alias(&layout, os, version.major, &version, &target)
+            })
+            .transpose()?;
+
+        if let Some(path) = major_alias_path {
+            println!("Updated major alias: {}", path.display());
+        }
+    }
+
     println!("Add to PATH once: {}", layout.bin_dir().display());
 
     Ok(())
@@ -141,8 +304,9 @@ fn run_update(line_input: &str, arch: Option<HostArch>, include_prerelease: bool
     let release_client = ReleaseClient::new(token)?;
     let release = release_client.resolve_latest_in_line(line, os, arch, include_prerelease)?;
     let executable_path = ensure_installed(&layout, release_client.http_client(), os, &release)?;
+    let patch_alias_path = create_or_update_patch_alias(&layout, os, &release.version, &executable_path)?;
 
-    let alias_path = create_or_update_alias(&layout, os, line, &release.version, &executable_path)?;
+    let alias_path = sync_minor_alias(&layout, os, line)?;
     let major_alias_path = latest_installed_in_major(&layout, release.version.major)?
         .map(|version| {
             let target = layout.version_executable(&version);
@@ -152,7 +316,15 @@ fn run_update(line_input: &str, arch: Option<HostArch>, include_prerelease: bool
 
     println!("Updated line {} to {}", line, release.version);
     println!("Version path: {}", layout.version_dir(&release.version).display());
-    println!("Updated alias: {}", alias_path.display());
+    println!("Updated patch alias: {}", patch_alias_path.display());
+    if let Some(path) = alias_path {
+        println!("Updated alias: {}", path.display());
+    } else if read_minor_pin(&layout, line)?.is_some() {
+        println!(
+            "Alias pwsh-{}.{} remains pinned but unresolved (target is not installed)",
+            line.major, line.minor
+        );
+    }
     if let Some(path) = major_alias_path {
         println!("Updated major alias: {}", path.display());
     }
@@ -260,19 +432,34 @@ fn run_uninstall(version_input: &str, force: bool) -> Result<()> {
 
     let mut updated_aliases = 0usize;
     let mut removed_aliases = 0usize;
+    let mut unresolved_pinned_aliases = 0usize;
 
     for alias_name in affected_aliases {
         let alias_selector = parse_alias_command_selector(&alias_name);
-        let fallback_version = alias_selector.and_then(|selector| match selector {
-            AliasSelector::MajorMinor(line) => installed_versions
-                .iter()
-                .find(|candidate| MajorMinor::from_version(candidate) == line)
-                .cloned(),
-            AliasSelector::Major(major) => installed_versions
+        let fallback_version = match alias_selector {
+            Some(AliasSelector::MajorMinor(line)) => {
+                let pinned = read_minor_pin(&layout, line)?;
+                if pinned.as_ref() == Some(&version) {
+                    println!(
+                        "Keeping pinned alias {} -> {} (target is now unresolved)",
+                        alias_name, version
+                    );
+                    unresolved_pinned_aliases += 1;
+                    continue;
+                }
+
+                installed_versions
+                    .iter()
+                    .find(|candidate| MajorMinor::from_version(candidate) == line)
+                    .cloned()
+            }
+            Some(AliasSelector::Major(major)) => installed_versions
                 .iter()
                 .find(|candidate| candidate.major == major)
                 .cloned(),
-        });
+            Some(AliasSelector::Exact(_)) => None,
+            None => None,
+        };
 
         if let Some(fallback_version) = fallback_version {
             let target = layout.version_executable(&fallback_version);
@@ -283,6 +470,7 @@ fn run_uninstall(version_input: &str, force: bool) -> Result<()> {
                 Some(AliasSelector::Major(major)) => {
                     create_or_update_major_alias(&layout, os, major, &fallback_version, &target)?
                 }
+                Some(AliasSelector::Exact(_)) => create_or_update_patch_alias(&layout, os, &fallback_version, &target)?,
                 None => continue,
             };
             println!("Updated alias: {} -> {}", alias_name, fallback_version);
@@ -298,8 +486,8 @@ fn run_uninstall(version_input: &str, force: bool) -> Result<()> {
     }
 
     println!(
-        "Alias cleanup complete: {} updated, {} removed",
-        updated_aliases, removed_aliases
+        "Alias cleanup complete: {} updated, {} removed, {} pinned unresolved",
+        updated_aliases, removed_aliases, unresolved_pinned_aliases
     );
 
     Ok(())
@@ -312,6 +500,7 @@ fn run_list(option: ListOption) -> Result<()> {
             let layout = InstallLayout::new(os)?;
             let versions = layout.installed_versions()?;
             let aliases = aliases::read_alias_metadata(&layout)?;
+            let pins = read_minor_pins(&layout)?;
 
             println!("Install root: {}", layout.root().display());
             println!("Alias bin: {}", layout.bin_dir().display());
@@ -335,6 +524,18 @@ fn run_list(option: ListOption) -> Result<()> {
                 items.sort_by(|a, b| a.0.cmp(&b.0));
                 for (alias, version) in items {
                     println!("  - {} -> {}", alias, version);
+                }
+            }
+
+            println!();
+            if pins.is_empty() {
+                println!("Minor alias pins: (none)");
+            } else {
+                println!("Minor alias pins:");
+                let mut items: Vec<_> = pins.into_iter().collect();
+                items.sort_by(|a, b| a.0.cmp(&b.0));
+                for (line, version) in items {
+                    println!("  - {} -> {}", line, version);
                 }
             }
 
@@ -411,6 +612,7 @@ fn run_doctor(args: &[String]) -> Result<()> {
         let alias_path = match parse_alias_command_selector(&alias_name) {
             Some(AliasSelector::MajorMinor(line)) => create_or_update_alias(&layout, os, line, &version, &target)?,
             Some(AliasSelector::Major(major)) => create_or_update_major_alias(&layout, os, major, &version, &target)?,
+            Some(AliasSelector::Exact(_)) => create_or_update_patch_alias(&layout, os, &version, &target)?,
             None => {
                 eprintln!("Skipping alias {}: unsupported alias name format", alias_name);
                 skipped += 1;
@@ -436,7 +638,7 @@ fn run() -> Result<()> {
         "install" => {
             if args.len() < 2 {
                 return Err(MultiPwshError::InvalidArguments(
-                    "install requires <version|major|major.minor>".to_string(),
+                    "install requires <version|major|major.minor|major.minor.x>".to_string(),
                 ));
             }
             let options = parse_release_selection_options(&args[2..])?;
@@ -464,13 +666,14 @@ fn run() -> Result<()> {
             let list_option = parse_list_option(&args[1..])?;
             run_list(list_option)
         }
+        "alias" => run_alias(&args[1..]),
         "doctor" => run_doctor(&args[1..]),
         "-h" | "--help" | "help" => {
             print_usage();
             Ok(())
         }
         command => Err(MultiPwshError::InvalidArguments(format!(
-            "unknown command '{}'. expected: install, update, uninstall, list, doctor",
+            "unknown command '{}'. expected: install, update, uninstall, list, alias, doctor",
             command
         ))),
     }
@@ -563,5 +766,17 @@ mod tests {
         let options = parse_release_selection_options(&args).unwrap();
         assert!(options.include_prerelease);
         assert!(matches!(options.arch, Some(HostArch::X64)));
+    }
+
+    #[test]
+    fn parse_alias_set_target_accepts_latest() {
+        assert!(parse_alias_set_target("latest").unwrap().is_none());
+        assert!(parse_alias_set_target("LATEST").unwrap().is_none());
+    }
+
+    #[test]
+    fn parse_alias_set_target_accepts_exact_version() {
+        let version = parse_alias_set_target("7.4.11").unwrap().unwrap();
+        assert_eq!(version, Version::parse("7.4.11").unwrap());
     }
 }

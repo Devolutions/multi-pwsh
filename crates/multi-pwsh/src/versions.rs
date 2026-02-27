@@ -30,9 +30,14 @@ pub enum VersionSelector {
     Major(u64),
     Exact(Version),
     MajorMinor(MajorMinor),
+    MajorMinorWildcard(MajorMinor),
 }
 
 pub fn parse_install_selector(value: &str) -> Result<VersionSelector> {
+    if let Ok(line) = parse_major_minor_wildcard_selector(value) {
+        return Ok(VersionSelector::MajorMinorWildcard(line));
+    }
+
     if let Ok(major) = parse_major_selector(value) {
         return Ok(VersionSelector::Major(major));
     }
@@ -43,6 +48,34 @@ pub fn parse_install_selector(value: &str) -> Result<VersionSelector> {
 
     let exact = parse_exact_version(value)?;
     Ok(VersionSelector::Exact(exact))
+}
+
+pub fn parse_major_minor_wildcard_selector(value: &str) -> Result<MajorMinor> {
+    let trimmed = value.trim().trim_start_matches('v');
+    let parts: Vec<&str> = trimmed.split('.').collect();
+    if parts.len() != 3 {
+        return Err(MultiPwshError::InvalidArguments(format!(
+            "'{}' is not a major.minor.x selector",
+            value
+        )));
+    }
+
+    if !parts[2].eq_ignore_ascii_case("x") {
+        return Err(MultiPwshError::InvalidArguments(format!(
+            "'{}' is not a major.minor.x selector",
+            value
+        )));
+    }
+
+    let major = parts[0].parse::<u64>().map_err(|_| {
+        MultiPwshError::InvalidArguments(format!("invalid major version '{}' in selector '{}'", parts[0], value))
+    })?;
+
+    let minor = parts[1].parse::<u64>().map_err(|_| {
+        MultiPwshError::InvalidArguments(format!("invalid minor version '{}' in selector '{}'", parts[1], value))
+    })?;
+
+    Ok(MajorMinor { major, minor })
 }
 
 pub fn parse_major_selector(value: &str) -> Result<u64> {
@@ -253,5 +286,24 @@ mod tests {
             }
             _ => panic!("expected major.minor selector"),
         }
+    }
+
+    #[test]
+    fn parses_line_wildcard_selector() {
+        let selector = parse_install_selector("7.4.x").unwrap();
+        match selector {
+            VersionSelector::MajorMinorWildcard(line) => {
+                assert_eq!(line.major, 7);
+                assert_eq!(line.minor, 4);
+            }
+            _ => panic!("expected major.minor wildcard selector"),
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_line_wildcard_selector() {
+        assert!(parse_major_minor_wildcard_selector("7.4").is_err());
+        assert!(parse_major_minor_wildcard_selector("7.4.11").is_err());
+        assert!(parse_major_minor_wildcard_selector("7.4.*").is_err());
     }
 }

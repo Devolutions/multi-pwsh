@@ -1,3 +1,4 @@
+use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -32,6 +33,13 @@ impl InstallLayout {
         self.root.join("aliases.json")
     }
 
+    pub fn cache_dir(&self) -> PathBuf {
+        match env::var_os("MULTI_PWSH_CACHE_DIR") {
+            Some(value) => PathBuf::from(value),
+            None => self.root.join("cache"),
+        }
+    }
+
     pub fn executable_name(&self) -> &'static str {
         self.os.executable_name()
     }
@@ -47,6 +55,7 @@ impl InstallLayout {
     pub fn ensure_base_dirs(&self) -> Result<()> {
         fs::create_dir_all(&self.root)?;
         fs::create_dir_all(self.bin_dir())?;
+        fs::create_dir_all(self.cache_dir())?;
         Ok(())
     }
 
@@ -66,7 +75,7 @@ impl InstallLayout {
 
             let file_name = entry.file_name();
             let file_name = file_name.to_string_lossy();
-            if file_name == "bin" {
+            if file_name == "bin" || file_name == "cache" {
                 continue;
             }
 

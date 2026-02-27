@@ -54,7 +54,44 @@ impl ReleaseClient {
             VersionSelector::Major(major) => self.resolve_latest_in_major(major, os, arch, include_prerelease),
             VersionSelector::Exact(version) => self.resolve_exact(version, os, arch),
             VersionSelector::MajorMinor(line) => self.resolve_latest_in_line(line, os, arch, include_prerelease),
+            VersionSelector::MajorMinorWildcard(line) => {
+                self.resolve_latest_in_line(line, os, arch, include_prerelease)
+            }
         }
+    }
+
+    pub fn resolve_all_in_line(
+        &self,
+        line: MajorMinor,
+        os: HostOs,
+        arch: HostArch,
+        include_prerelease: bool,
+    ) -> Result<Vec<ResolvedRelease>> {
+        let releases = self.fetch_releases()?;
+        let mut candidates: Vec<ParsedRelease> = releases
+            .into_iter()
+            .filter(|release| include_prerelease || !release.prerelease)
+            .filter_map(ParsedRelease::from_github_release)
+            .filter(|release| release.version.major == line.major && release.version.minor == line.minor)
+            .collect();
+
+        candidates.sort_by(|a, b| b.version.cmp(&a.version));
+
+        let mut resolved = Vec::new();
+        for candidate in candidates {
+            if let Ok(release) = resolve_release_asset(candidate, os, arch) {
+                resolved.push(release);
+            }
+        }
+
+        if resolved.is_empty() {
+            return Err(MultiPwshError::ReleaseNotFound(format!(
+                "no release found for line {}",
+                line
+            )));
+        }
+
+        Ok(resolved)
     }
 
     pub fn resolve_latest_in_major(

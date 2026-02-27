@@ -26,10 +26,21 @@ jobs:
       - name: Add multi-pwsh bin to PATH
         run: echo "$HOME/.pwsh/bin" >> "$GITHUB_PATH"
 
+      - name: Cache multi-pwsh downloads
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/multi-pwsh-cache
+          key: multi-pwsh-cache-${{ runner.os }}-${{ hashFiles('crates/multi-pwsh/Cargo.toml', '.github/workflows/ci.yml') }}
+          restore-keys: |
+            multi-pwsh-cache-${{ runner.os }}-
+
       - name: Install PowerShell aliases
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          MULTI_PWSH_CACHE_DIR: ${{ runner.temp }}/multi-pwsh-cache
+          MULTI_PWSH_CACHE_KEEP_KEEP: '1'
+          MULTI_PWSH_CACHE_KEEP: '1'
         run: |
           multi-pwsh install 7.4
           multi-pwsh install 7.5
@@ -90,10 +101,21 @@ jobs:
         if: matrix.os != 'windows-latest'
         run: echo "$HOME/.pwsh/bin" >> "$GITHUB_PATH"
 
+      - name: Cache multi-pwsh downloads
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/multi-pwsh-cache
+          key: multi-pwsh-cache-${{ runner.os }}-${{ hashFiles('crates/multi-pwsh/Cargo.toml', '.github/workflows/ci.yml') }}
+          restore-keys: |
+            multi-pwsh-cache-${{ runner.os }}-
+
       - name: Install PowerShell aliases
         shell: pwsh
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          MULTI_PWSH_CACHE_DIR: ${{ runner.temp }}/multi-pwsh-cache
+          MULTI_PWSH_CACHE_KEEP_KEEP: '1'
+          MULTI_PWSH_CACHE_KEEP: '1'
         run: |
           multi-pwsh install 7.4
           multi-pwsh install 7.5
