@@ -30,11 +30,19 @@ pub fn ensure_installed(
     }
     fs::create_dir_all(&install_dir)?;
 
-    let temp_dir = tempfile::tempdir()?;
-    let archive_path = temp_dir.path().join(&release.asset_name);
+    let cache_dir = layout.cache_dir();
+    fs::create_dir_all(&cache_dir)?;
+    let archive_path = cache_dir.join(&release.asset_name);
 
-    download_with_retry(http, &release.asset_url, &archive_path, 8)?;
+    if !archive_path.exists() {
+        download_with_retry(http, &release.asset_url, &archive_path, 8)?;
+    }
+
     extract_archive(&archive_path, &install_dir)?;
+
+    if !cache_keep_archives() {
+        let _ = fs::remove_file(&archive_path);
+    }
 
     let executable = layout.version_executable(&release.version);
     if !executable.exists() {
@@ -77,6 +85,16 @@ fn download_with_retry(http: &Agent, url: &str, destination: &Path, retries: usi
     }
 
     Err(last_error.unwrap_or_else(|| MultiPwshError::Archive("download failed without detailed error".to_string())))
+}
+
+fn cache_keep_archives() -> bool {
+    match std::env::var("MULTI_PWSH_CACHE_KEEP") {
+        Ok(value) => {
+            let normalized = value.trim().to_ascii_lowercase();
+            matches!(normalized.as_str(), "1" | "true" | "yes" | "on")
+        }
+        Err(_) => false,
+    }
 }
 
 fn extract_archive(archive_path: &Path, install_dir: &Path) -> Result<()> {
@@ -164,4 +182,33 @@ fn ensure_executable_bit(executable: &Path) -> Result<()> {
 #[cfg(not(unix))]
 fn ensure_executable_bit(_executable: &Path) -> Result<()> {
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cache_keep_defaults_to_false() {
+        unsafe { std::env::remove_var("MULTI_PWSH_CACHE_KEEP") };
+        assert!(!cache_keep_archives());
+    }
+
+    #[test]
+    fn cache_keep_parses_truthy_values() {
+        unsafe { std::env::set_var("MULTI_PWSH_CACHE_KEEP", "true") };
+        assert!(cache_keep_archives());
+
+        unsafe { std::env::set_var("MULTI_PWSH_CACHE_KEEP", "1") };
+        assert!(cache_keep_archives());
+
+        unsafe { std::env::set_var("MULTI_PWSH_CACHE_KEEP", "on") };
+        assert!(cache_keep_archives());
+    }
+
+    #[test]
+    fn cache_keep_parses_falsey_values() {
+        unsafe { std::env::set_var("MULTI_PWSH_CACHE_KEEP", "false") };
+        assert!(!cache_keep_archives());
+    }
 }
