@@ -483,7 +483,6 @@ $mergedContract = [ordered]@{
 
 $surfaceReport = [ordered]@{
     runtimePsVersion = [string]$PSVersionTable.PSVersion
-    generatedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
     baseEntryCount = $baseEntries.Count
     discoveredEntryCount = $discoveredEntries.Count
     totalEntryCount = $mergedEntries.Count

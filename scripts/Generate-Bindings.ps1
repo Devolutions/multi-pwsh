@@ -160,5 +160,16 @@ if (-not (Test-Path -Path $rustDirectory)) {
 Set-Content -Path $resolvedCSharpOutputPath -Value $csharpContent -Encoding UTF8
 Set-Content -Path $resolvedRustOutputPath -Value $rustContent -Encoding UTF8
 
+$rustfmtCommand = Get-Command rustfmt -ErrorAction SilentlyContinue
+if ($null -ne $rustfmtCommand) {
+    & $rustfmtCommand.Source --edition 2018 $resolvedRustOutputPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "rustfmt failed for generated Rust bindings: $resolvedRustOutputPath"
+    }
+}
+else {
+    Write-Warning "rustfmt not found; generated Rust bindings may require formatting."
+}
+
 Write-Output "Generated: $resolvedCSharpOutputPath"
 Write-Output "Generated: $resolvedRustOutputPath"

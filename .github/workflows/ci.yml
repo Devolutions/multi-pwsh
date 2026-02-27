@@ -28,6 +28,8 @@ jobs:
 
       - name: Install PowerShell aliases
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           multi-pwsh install 7.4
           multi-pwsh install 7.5
@@ -90,6 +92,8 @@ jobs:
 
       - name: Install PowerShell aliases
         shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           multi-pwsh install 7.4
           multi-pwsh install 7.5

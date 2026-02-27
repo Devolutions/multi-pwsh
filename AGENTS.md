@@ -14,9 +14,16 @@ This file is guidance for AI/code agents working in this repository.
 - .NET target framework is `net8.0` in `dotnet/Bindings.csproj`.
 - Rust crate uses edition 2018.
 
-## Pre-PR checklist (match CI lint job)
+## PR preparation policy (mandatory)
 
-Run these before opening a PR to avoid lint failures:
+- During local iteration, it is acceptable to skip lint/test commands for speed.
+- Before any PR-ready action (`git commit` for review, `git push`, or opening/updating a PR), agents **MUST** run the PR gate below and ensure it passes.
+- Do not open or update a PR with known failing lint/checks unless the user explicitly asks for that.
+- If a gate command cannot run due to environment limitations, call that out clearly to the user before PR creation.
+
+## Mandatory PR gate (match CI lint job)
+
+Run these before opening/updating a PR to avoid immediate CI failures:
 
 ```powershell
 rustup toolchain install stable --profile minimal
@@ -30,7 +37,7 @@ If `cargo fmt --all --check` fails, run `cargo fmt --all` and re-run the check.
 
 ## Required verification
 
-Run these after meaningful code changes:
+Run these after meaningful code changes, and before PR if those changes are part of the PR:
 
 ```powershell
 cargo build --all-targets

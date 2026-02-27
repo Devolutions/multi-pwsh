@@ -43,18 +43,55 @@ impl ReleaseClient {
         &self.http
     }
 
-    pub fn resolve_selector(&self, selector: VersionSelector, os: HostOs, arch: HostArch) -> Result<ResolvedRelease> {
+    pub fn resolve_selector(
+        &self,
+        selector: VersionSelector,
+        os: HostOs,
+        arch: HostArch,
+        include_prerelease: bool,
+    ) -> Result<ResolvedRelease> {
         match selector {
+            VersionSelector::Major(major) => self.resolve_latest_in_major(major, os, arch, include_prerelease),
             VersionSelector::Exact(version) => self.resolve_exact(version, os, arch),
-            VersionSelector::MajorMinor(line) => self.resolve_latest_in_line(line, os, arch),
+            VersionSelector::MajorMinor(line) => self.resolve_latest_in_line(line, os, arch, include_prerelease),
         }
     }
 
-    pub fn resolve_latest_in_line(&self, line: MajorMinor, os: HostOs, arch: HostArch) -> Result<ResolvedRelease> {
+    pub fn resolve_latest_in_major(
+        &self,
+        major: u64,
+        os: HostOs,
+        arch: HostArch,
+        include_prerelease: bool,
+    ) -> Result<ResolvedRelease> {
         let releases = self.fetch_releases()?;
         let mut candidates: Vec<ParsedRelease> = releases
             .into_iter()
-            .filter(|release| !release.prerelease)
+            .filter(|release| include_prerelease || !release.prerelease)
+            .filter_map(ParsedRelease::from_github_release)
+            .filter(|release| release.version.major == major)
+            .collect();
+
+        candidates.sort_by(|a, b| b.version.cmp(&a.version));
+        let release = candidates
+            .into_iter()
+            .next()
+            .ok_or_else(|| MultiPwshError::ReleaseNotFound(format!("no release found for major {}", major)))?;
+
+        resolve_release_asset(release, os, arch)
+    }
+
+    pub fn resolve_latest_in_line(
+        &self,
+        line: MajorMinor,
+        os: HostOs,
+        arch: HostArch,
+        include_prerelease: bool,
+    ) -> Result<ResolvedRelease> {
+        let releases = self.fetch_releases()?;
+        let mut candidates: Vec<ParsedRelease> = releases
+            .into_iter()
+            .filter(|release| include_prerelease || !release.prerelease)
             .filter_map(ParsedRelease::from_github_release)
             .filter(|release| release.version.major == line.major && release.version.minor == line.minor)
             .collect();
@@ -66,6 +103,20 @@ impl ReleaseClient {
             .ok_or_else(|| MultiPwshError::ReleaseNotFound(format!("no release found for line {}", line)))?;
 
         resolve_release_asset(release, os, arch)
+    }
+
+    pub fn list_available_versions(&self, include_prerelease: bool) -> Result<Vec<Version>> {
+        let releases = self.fetch_releases()?;
+        let mut versions: Vec<Version> = releases
+            .into_iter()
+            .filter(|release| include_prerelease || !release.prerelease)
+            .filter_map(ParsedRelease::from_github_release)
+            .map(|release| release.version)
+            .collect();
+
+        versions.sort_by(|a, b| b.cmp(a));
+        versions.dedup();
+        Ok(versions)
     }
 
     fn resolve_exact(&self, version: Version, os: HostOs, arch: HostArch) -> Result<ResolvedRelease> {
