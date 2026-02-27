@@ -2,14 +2,13 @@
 
 Rust PowerShell hosting library that loads .NET delegates and drives `System.Management.Automation.PowerShell` through unmanaged entry points.
 
-## Use from GitHub Releases
+## multi-pwsh
 
-This repository publishes two user-facing binaries on Releases:
+Install and manage side-by-side PowerShell versions from GitHub Releases.
 
-- `multi-pwsh`: install and manage side-by-side PowerShell lines
-- `pwsh-host`: run PowerShell commands through the native host shim
+![multi-pwsh](docs/images/multi-pwsh.png)
 
-### 1) Bootstrap `multi-pwsh`
+### Bootstrap
 
 Latest release bootstrap scripts:
 
@@ -41,7 +40,7 @@ curl -fsSL https://raw.githubusercontent.com/Devolutions/pwsh-host-rs/refs/heads
 irm https://raw.githubusercontent.com/Devolutions/pwsh-host-rs/refs/heads/master/tools/uninstall-multi-pwsh.ps1 | iex
 ```
 
-### 2) Install PowerShell 7.4 and 7.5 side-by-side
+### Install and verify aliases
 
 ```powershell
 multi-pwsh install 7.4
@@ -51,12 +50,12 @@ multi-pwsh install 7.5
 Verify aliases:
 
 ```powershell
-pwsh-7 -NoLogo -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'
-pwsh-7.4 -NoLogo -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'
-pwsh-7.5 -NoLogo -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'
+pwsh-7 --version
+pwsh-7.4 --version
+pwsh-7.5 --version
 ```
 
-Manage installed lines:
+### Manage installed lines
 
 ```powershell
 multi-pwsh install 7.4.x
@@ -113,7 +112,14 @@ multi-pwsh install 7.4.x
 
 When installed via bootstrap scripts, `~/.pwsh/bin` is added to PATH automatically if needed.
 
-### 3) Download `pwsh-host` from Releases
+## pwsh-host
+
+Run PowerShell commands through a native host shim built in Rust.
+
+This project uses .NET native hosting (hostfxr delegates) to call into `System.Management.Automation.PowerShell` from native code.
+For background on this approach, see [dotnet/runtime#46652: Native Host using existing PowerShell 7 installation](https://github.com/dotnet/runtime/issues/46652).
+
+### Download from Releases
 
 Download the `pwsh-host-<os>-<arch>.zip` artifact for your platform from:
 
@@ -128,15 +134,23 @@ Current artifact names:
 - `pwsh-host-windows-x64.zip`
 - `pwsh-host-windows-arm64.zip`
 
-Extract and run:
+### Run example
+
+Extract and run a command:
 
 ```powershell
 ./pwsh-host -NoLogo -NoProfile -Command "$PSVersionTable.PSVersion"
 ```
 
+Another example:
+
+```powershell
+./pwsh-host -NoLogo -NoProfile -Command "Get-Process pwsh | Select-Object -First 1 Name,Id"
+```
+
 On Windows, the binary name is `pwsh-host.exe`.
 
-### 4) `-NamedPipeCommand` (Windows)
+### `-NamedPipeCommand` (Windows)
 
 `pwsh-host` supports `-NamedPipeCommand <pipeName>` to read command text from a named pipe and forward it as an encoded PowerShell command.
 
