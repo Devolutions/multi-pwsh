@@ -10,6 +10,12 @@ use crate::layout::InstallLayout;
 use crate::platform::HostOs;
 use crate::versions::MajorMinor;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AliasSelector {
+    Major(u64),
+    MajorMinor(MajorMinor),
+}
+
 pub fn create_or_update_alias(
     layout: &InstallLayout,
     os: HostOs,
@@ -17,10 +23,30 @@ pub fn create_or_update_alias(
     version: &Version,
     target: &Path,
 ) -> Result<PathBuf> {
+    create_or_update_alias_with_selector(layout, os, AliasSelector::MajorMinor(line), version, target)
+}
+
+pub fn create_or_update_major_alias(
+    layout: &InstallLayout,
+    os: HostOs,
+    major: u64,
+    version: &Version,
+    target: &Path,
+) -> Result<PathBuf> {
+    create_or_update_alias_with_selector(layout, os, AliasSelector::Major(major), version, target)
+}
+
+fn create_or_update_alias_with_selector(
+    layout: &InstallLayout,
+    os: HostOs,
+    selector: AliasSelector,
+    version: &Version,
+    target: &Path,
+) -> Result<PathBuf> {
     fs::create_dir_all(layout.bin_dir())?;
 
-    let alias_command = alias_command_name(line);
-    let alias_file = alias_file_name(line, os);
+    let alias_command = alias_command_name(selector);
+    let alias_file = alias_file_name(selector, os);
     let alias_path = layout.bin_dir().join(alias_file);
 
     if os == HostOs::Windows {
@@ -68,16 +94,22 @@ pub fn remove_alias(layout: &InstallLayout, os: HostOs, alias_command: &str) -> 
     Ok(removed)
 }
 
-pub fn parse_alias_command_line(alias_command: &str) -> Option<MajorMinor> {
-    let line = alias_command.strip_prefix("pwsh-")?;
-    let parts: Vec<&str> = line.split('.').collect();
-    if parts.len() != 2 {
-        return None;
+pub fn parse_alias_command_selector(alias_command: &str) -> Option<AliasSelector> {
+    let selector = alias_command.strip_prefix("pwsh-")?;
+
+    let parts: Vec<&str> = selector.split('.').collect();
+    if parts.len() == 1 {
+        let major = parts[0].parse::<u64>().ok()?;
+        return Some(AliasSelector::Major(major));
     }
 
-    let major = parts[0].parse::<u64>().ok()?;
-    let minor = parts[1].parse::<u64>().ok()?;
-    Some(MajorMinor { major, minor })
+    if parts.len() == 2 {
+        let major = parts[0].parse::<u64>().ok()?;
+        let minor = parts[1].parse::<u64>().ok()?;
+        return Some(AliasSelector::MajorMinor(MajorMinor { major, minor }));
+    }
+
+    None
 }
 
 pub fn read_alias_metadata(layout: &InstallLayout) -> Result<HashMap<String, String>> {
@@ -99,8 +131,8 @@ fn write_alias_metadata(layout: &InstallLayout, aliases: HashMap<String, String>
     Ok(())
 }
 
-fn alias_file_name(line: MajorMinor, os: HostOs) -> String {
-    alias_file_name_from_command(&alias_command_name(line), os)
+fn alias_file_name(selector: AliasSelector, os: HostOs) -> String {
+    alias_file_name_from_command(&alias_command_name(selector), os)
 }
 
 fn alias_file_name_from_command(alias_command: &str, os: HostOs) -> String {
@@ -110,8 +142,11 @@ fn alias_file_name_from_command(alias_command: &str, os: HostOs) -> String {
     }
 }
 
-fn alias_command_name(line: MajorMinor) -> String {
-    format!("pwsh-{}.{}", line.major, line.minor)
+fn alias_command_name(selector: AliasSelector) -> String {
+    match selector {
+        AliasSelector::Major(major) => format!("pwsh-{}", major),
+        AliasSelector::MajorMinor(line) => format!("pwsh-{}.{}", line.major, line.minor),
+    }
 }
 
 #[cfg(unix)]
@@ -168,23 +203,40 @@ mod tests {
     #[test]
     fn alias_name_uses_major_minor() {
         let line = MajorMinor { major: 7, minor: 4 };
-        assert_eq!(alias_command_name(line), "pwsh-7.4");
-        assert_eq!(alias_file_name(line, HostOs::Linux), "pwsh-7.4");
-        assert_eq!(alias_file_name(line, HostOs::Windows), "pwsh-7.4.cmd");
+        assert_eq!(alias_command_name(AliasSelector::MajorMinor(line)), "pwsh-7.4");
+        assert_eq!(
+            alias_file_name(AliasSelector::MajorMinor(line), HostOs::Linux),
+            "pwsh-7.4"
+        );
+        assert_eq!(
+            alias_file_name(AliasSelector::MajorMinor(line), HostOs::Windows),
+            "pwsh-7.4.cmd"
+        );
     }
 
     #[test]
-    fn parses_alias_line() {
-        let line = parse_alias_command_line("pwsh-7.5").unwrap();
-        assert_eq!(line.major, 7);
-        assert_eq!(line.minor, 5);
+    fn alias_name_supports_major() {
+        assert_eq!(alias_command_name(AliasSelector::Major(7)), "pwsh-7");
+        assert_eq!(alias_file_name(AliasSelector::Major(7), HostOs::Linux), "pwsh-7");
+        assert_eq!(alias_file_name(AliasSelector::Major(7), HostOs::Windows), "pwsh-7.cmd");
     }
 
     #[test]
-    fn rejects_invalid_alias_line() {
-        assert!(parse_alias_command_line("pwsh").is_none());
-        assert!(parse_alias_command_line("pwsh-7").is_none());
-        assert!(parse_alias_command_line("pwsh-7.5.1").is_none());
-        assert!(parse_alias_command_line("not-pwsh-7.5").is_none());
+    fn parses_alias_major_minor_selector() {
+        let selector = parse_alias_command_selector("pwsh-7.5").unwrap();
+        assert_eq!(selector, AliasSelector::MajorMinor(MajorMinor { major: 7, minor: 5 }));
+    }
+
+    #[test]
+    fn parses_alias_major_selector() {
+        let selector = parse_alias_command_selector("pwsh-7").unwrap();
+        assert_eq!(selector, AliasSelector::Major(7));
+    }
+
+    #[test]
+    fn rejects_invalid_alias_selector() {
+        assert!(parse_alias_command_selector("pwsh").is_none());
+        assert!(parse_alias_command_selector("pwsh-7.5.1").is_none());
+        assert!(parse_alias_command_selector("not-pwsh-7.5").is_none());
     }
 }

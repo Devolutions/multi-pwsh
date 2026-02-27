@@ -51,6 +51,7 @@ multi-pwsh install 7.5
 Verify aliases:
 
 ```powershell
+pwsh-7 -NoLogo -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'
 pwsh-7.4 -NoLogo -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'
 pwsh-7.5 -NoLogo -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'
 ```
@@ -61,6 +62,13 @@ Manage installed lines:
 multi-pwsh update 7.4
 multi-pwsh update 7.5
 multi-pwsh list
+multi-pwsh list --available
+multi-pwsh list --available --include-prerelease
+multi-pwsh install 7.6 --include-prerelease
+multi-pwsh install 7.6-preview6
+multi-pwsh install 7.6-rc1
+multi-pwsh install 7.6.0-rc.1
+multi-pwsh update 7.6 --include-prerelease
 multi-pwsh doctor --repair-aliases
 ```
 
