@@ -151,7 +151,10 @@ fn run_alias(args: &[String]) -> Result<()> {
             set_minor_pin(&layout, line, None)?;
 
             let alias_path = sync_minor_alias(&layout, os, line)?;
-            println!("Removed pin for pwsh-{}.{}, now following latest in line", line.major, line.minor);
+            println!(
+                "Removed pin for pwsh-{}.{}, now following latest in line",
+                line.major, line.minor
+            );
             if let Some(path) = alias_path {
                 println!("Updated alias: {}", path.display());
             }
@@ -227,7 +230,9 @@ fn run_install(selector_input: &str, arch: Option<HostArch>, include_prerelease:
     let token = env::var("GITHUB_TOKEN").ok();
     let release_client = ReleaseClient::new(token)?;
     let releases = match selector {
-        VersionSelector::MajorMinorWildcard(line) => release_client.resolve_all_in_line(line, os, arch, include_prerelease)?,
+        VersionSelector::MajorMinorWildcard(line) => {
+            release_client.resolve_all_in_line(line, os, arch, include_prerelease)?
+        }
         _ => vec![release_client.resolve_selector(selector, os, arch, include_prerelease)?],
     };
 
