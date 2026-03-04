@@ -7,8 +7,9 @@ mod release;
 mod versions;
 
 use std::env;
+use std::ffi::OsString;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process;
 
 use semver::Version;
@@ -22,11 +23,14 @@ use install::ensure_installed;
 use layout::InstallLayout;
 use platform::{HostArch, HostOs};
 use release::ReleaseClient;
-use versions::{parse_exact_version, parse_install_selector, parse_major_minor_selector, MajorMinor, VersionSelector};
+use versions::{
+    parse_exact_version, parse_install_selector, parse_major_minor_selector, parse_major_selector, MajorMinor,
+    VersionSelector,
+};
 
 fn print_usage() {
     eprintln!(
-        "Usage:\n  multi-pwsh install <version|major|major.minor|major.minor.x> [--arch <auto|x64|x86|arm64|arm32>] [--include-prerelease]\n  multi-pwsh update <major.minor> [--arch <auto|x64|x86|arm64|arm32>] [--include-prerelease]\n  multi-pwsh uninstall <version> [--force]\n  multi-pwsh list [--available] [--include-prerelease]\n  multi-pwsh alias set <major.minor> <version|latest>\n  multi-pwsh alias unset <major.minor>\n  multi-pwsh doctor --repair-aliases"
+        "Usage:\n  multi-pwsh install <version|major|major.minor|major.minor.x> [--arch <auto|x64|x86|arm64|arm32>] [--include-prerelease]\n  multi-pwsh update <major.minor> [--arch <auto|x64|x86|arm64|arm32>] [--include-prerelease]\n  multi-pwsh uninstall <version> [--force]\n  multi-pwsh list [--available] [--include-prerelease]\n  multi-pwsh alias set <major.minor> <version|latest>\n  multi-pwsh alias unset <major.minor>\n  multi-pwsh host <version|major|major.minor|pwsh-alias> [pwsh arguments...]\n  multi-pwsh doctor --repair-aliases"
     );
 }
 
@@ -38,6 +42,164 @@ struct ReleaseSelectionOptions {
 enum ListOption {
     Installed,
     Available { include_prerelease: bool },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum HostSelector {
+    Major(u64),
+    MajorMinor(MajorMinor),
+    Exact(Version),
+}
+
+fn parse_host_selector(value: &str) -> Result<HostSelector> {
+    if let Some(selector) = parse_alias_command_selector(value) {
+        return Ok(match selector {
+            AliasSelector::Major(major) => HostSelector::Major(major),
+            AliasSelector::MajorMinor(line) => HostSelector::MajorMinor(line),
+            AliasSelector::Exact(version) => HostSelector::Exact(version),
+        });
+    }
+
+    if let Ok(version) = parse_exact_version(value) {
+        return Ok(HostSelector::Exact(version));
+    }
+
+    if let Ok(line) = parse_major_minor_selector(value) {
+        return Ok(HostSelector::MajorMinor(line));
+    }
+
+    if let Ok(major) = parse_major_selector(value) {
+        return Ok(HostSelector::Major(major));
+    }
+
+    Err(MultiPwshError::InvalidArguments(format!(
+        "host selector '{}' is invalid; expected one of: <major>, <major.minor>, <major.minor.patch>, or pwsh-<selector>",
+        value
+    )))
+}
+
+fn resolve_host_version(layout: &InstallLayout, selector: &HostSelector) -> Result<Version> {
+    match selector {
+        HostSelector::Exact(version) => Ok(version.clone()),
+        HostSelector::Major(major) => latest_installed_in_major(layout, *major)?.ok_or_else(|| {
+            MultiPwshError::InvalidArguments(format!(
+                "no installed PowerShell version found for major {}; install one with: multi-pwsh install {}",
+                major, major
+            ))
+        }),
+        HostSelector::MajorMinor(line) => {
+            let pinned = read_minor_pin(layout, *line)?;
+            if let Some(version) = pinned {
+                return Ok(version);
+            }
+
+            latest_installed_in_line(layout, *line)?.ok_or_else(|| {
+                MultiPwshError::InvalidArguments(format!(
+                    "no installed PowerShell version found for line {}; install one with: multi-pwsh install {}",
+                    line, line
+                ))
+            })
+        }
+    }
+}
+
+fn resolve_host_executable(layout: &InstallLayout, selector_input: &str) -> Result<(Version, PathBuf)> {
+    let selector = parse_host_selector(selector_input)?;
+    let version = resolve_host_version(layout, &selector)?;
+    let executable = layout.version_executable(&version);
+
+    if !executable.exists() {
+        return Err(MultiPwshError::InvalidArguments(format!(
+            "resolved host selector '{}' to {}, but executable was not found at {}",
+            selector_input,
+            version,
+            executable.display()
+        )));
+    }
+
+    Ok((version, executable))
+}
+
+fn preprocess_host_args(args: Vec<OsString>) -> Result<Vec<OsString>> {
+    pwsh_host::preprocess_named_pipe_command_args(args)
+        .map_err(|error| MultiPwshError::Host(format!("invalid host arguments: {}", error)))
+}
+
+fn run_host_mode(selector_input: &str, pwsh_args: Vec<OsString>) -> Result<i32> {
+    let os = HostOs::detect()?;
+    let layout = InstallLayout::new(os)?;
+    layout.ensure_base_dirs()?;
+
+    let (_version, executable) = resolve_host_executable(&layout, selector_input)?;
+    let args = preprocess_host_args(pwsh_args)?;
+
+    pwsh_host::run_pwsh_command_line_for_pwsh_exe(&executable, args).map_err(|error| {
+        MultiPwshError::Host(format!(
+            "failed to start native host for selector '{}': {}",
+            selector_input, error
+        ))
+    })
+}
+
+fn run_host_command(args: &[String]) -> Result<i32> {
+    if args.is_empty() {
+        return Err(MultiPwshError::InvalidArguments(
+            "host requires: <version|major|major.minor|pwsh-alias> [pwsh arguments...]".to_string(),
+        ));
+    }
+
+    let selector = &args[0];
+    let pwsh_args: Vec<OsString> = args[1..].iter().map(OsString::from).collect();
+    run_host_mode(selector, pwsh_args)
+}
+
+fn paths_refer_to_same_location(left: &Path, right: &Path) -> bool {
+    match (fs::canonicalize(left), fs::canonicalize(right)) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => left == right,
+    }
+}
+
+fn detect_implicit_host_selector(bin_dir: &Path, executable_path: &Path) -> Option<String> {
+    let stem = executable_path.file_stem()?.to_str()?;
+    if stem.eq_ignore_ascii_case("multi-pwsh") {
+        return None;
+    }
+
+    if parse_alias_command_selector(stem).is_none() {
+        return None;
+    }
+
+    let parent = executable_path.parent()?;
+    if !paths_refer_to_same_location(parent, bin_dir) {
+        return None;
+    }
+
+    Some(stem.to_string())
+}
+
+fn run_implicit_host_mode_if_needed() -> Result<Option<i32>> {
+    let executable_path = env::current_exe()?;
+
+    let stem = match executable_path.file_stem().and_then(|value| value.to_str()) {
+        Some(stem) => stem,
+        None => return Ok(None),
+    };
+    if stem.eq_ignore_ascii_case("multi-pwsh") || parse_alias_command_selector(stem).is_none() {
+        return Ok(None);
+    }
+
+    let os = HostOs::detect()?;
+    let layout = InstallLayout::new(os)?;
+
+    let bin_dir = layout.bin_dir();
+    let Some(selector) = detect_implicit_host_selector(&bin_dir, &executable_path) else {
+        return Ok(None);
+    };
+
+    let args: Vec<OsString> = env::args_os().skip(1).collect();
+    let exit_code = run_host_mode(&selector, args)?;
+    Ok(Some(exit_code))
 }
 
 fn latest_installed_in_major(layout: &InstallLayout, major: u64) -> Result<Option<Version>> {
@@ -584,6 +746,7 @@ fn run_doctor(args: &[String]) -> Result<()> {
 
     let mut repaired = 0usize;
     let mut skipped = 0usize;
+    let mut relinked_shims = 0usize;
 
     let mut items: Vec<_> = aliases.into_iter().collect();
     items.sort_by(|a, b| a.0.cmp(&b.0));
@@ -609,6 +772,22 @@ fn run_doctor(args: &[String]) -> Result<()> {
             continue;
         }
 
+        if aliases::repair_host_shim_if_needed(&layout, os, &alias_name)? {
+            println!(
+                "Relinked host shim: {}",
+                if os == HostOs::Windows {
+                    layout
+                        .bin_dir()
+                        .join(format!("{}.exe", alias_name))
+                        .display()
+                        .to_string()
+                } else {
+                    layout.bin_dir().join(&alias_name).display().to_string()
+                }
+            );
+            relinked_shims += 1;
+        }
+
         let alias_path = match parse_alias_command_selector(&alias_name) {
             Some(AliasSelector::MajorMinor(line)) => create_or_update_alias(&layout, os, line, &version, &target)?,
             Some(AliasSelector::Major(major)) => create_or_update_major_alias(&layout, os, major, &version, &target)?,
@@ -623,7 +802,14 @@ fn run_doctor(args: &[String]) -> Result<()> {
         repaired += 1;
     }
 
-    println!("Repair complete: {} repaired, {} skipped", repaired, skipped);
+    if matches!(os, HostOs::Windows | HostOs::Linux | HostOs::Macos) {
+        println!(
+            "Repair complete: {} repaired, {} skipped, {} host shims relinked",
+            repaired, skipped, relinked_shims
+        );
+    } else {
+        println!("Repair complete: {} repaired, {} skipped", repaired, skipped);
+    }
     Ok(())
 }
 
@@ -667,20 +853,32 @@ fn run() -> Result<()> {
             run_list(list_option)
         }
         "alias" => run_alias(&args[1..]),
+        "host" => {
+            let exit_code = run_host_command(&args[1..])?;
+            process::exit(exit_code);
+        }
         "doctor" => run_doctor(&args[1..]),
         "-h" | "--help" | "help" => {
             print_usage();
             Ok(())
         }
         command => Err(MultiPwshError::InvalidArguments(format!(
-            "unknown command '{}'. expected: install, update, uninstall, list, alias, doctor",
+            "unknown command '{}'. expected: install, update, uninstall, list, alias, host, doctor",
             command
         ))),
     }
 }
 
+fn main_impl() -> Result<()> {
+    if let Some(exit_code) = run_implicit_host_mode_if_needed()? {
+        process::exit(exit_code);
+    }
+
+    run()
+}
+
 fn main() {
-    if let Err(error) = run() {
+    if let Err(error) = main_impl() {
         eprintln!("error: {}", error);
         process::exit(1);
     }
@@ -746,6 +944,42 @@ mod tests {
     fn parse_list_option_rejects_prerelease_without_available() {
         let args = vec!["--include-prerelease".to_string()];
         assert!(parse_list_option(&args).is_err());
+    }
+
+    #[test]
+    fn parse_host_selector_supports_alias_name() {
+        let selector = parse_host_selector("pwsh-7.4").unwrap();
+        assert_eq!(selector, HostSelector::MajorMinor(MajorMinor { major: 7, minor: 4 }));
+    }
+
+    #[test]
+    fn parse_host_selector_supports_exact_version() {
+        let selector = parse_host_selector("7.4.13").unwrap();
+        assert_eq!(selector, HostSelector::Exact(Version::parse("7.4.13").unwrap()));
+    }
+
+    #[test]
+    fn detect_implicit_host_selector_accepts_alias_in_bin_dir() {
+        let bin_dir = PathBuf::from("C:/Users/test/.pwsh/bin");
+
+        let selector = detect_implicit_host_selector(&bin_dir, &bin_dir.join("pwsh-7.4.exe"));
+        assert_eq!(selector, Some("pwsh-7.4".to_string()));
+    }
+
+    #[test]
+    fn detect_implicit_host_selector_rejects_multi_pwsh_name() {
+        let bin_dir = PathBuf::from("C:/Users/test/.pwsh/bin");
+
+        let selector = detect_implicit_host_selector(&bin_dir, &bin_dir.join("multi-pwsh.exe"));
+        assert!(selector.is_none());
+    }
+
+    #[test]
+    fn detect_implicit_host_selector_rejects_outside_bin_dir() {
+        let bin_dir = PathBuf::from("C:/Users/test/.pwsh/bin");
+
+        let selector = detect_implicit_host_selector(&bin_dir, &PathBuf::from("C:/Users/test/other/pwsh-7.4.exe"));
+        assert!(selector.is_none());
     }
 
     #[test]

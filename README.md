@@ -71,6 +71,7 @@ multi-pwsh install 7.6.0-rc.1
 multi-pwsh update 7.6 --include-prerelease
 multi-pwsh alias set 7.4 7.4.11
 multi-pwsh alias unset 7.4
+multi-pwsh host 7.4 -NoLogo -NoProfile -Command "$PSVersionTable.PSVersion"
 multi-pwsh doctor --repair-aliases
 ```
 
@@ -83,6 +84,7 @@ multi-pwsh uninstall <version> [--force]
 multi-pwsh list [--available] [--include-prerelease]
 multi-pwsh alias set <major.minor> <version|latest>
 multi-pwsh alias unset <major.minor>
+multi-pwsh host <version|major|major.minor|pwsh-alias> [pwsh arguments...]
 multi-pwsh doctor --repair-aliases
 ```
 
@@ -96,6 +98,17 @@ Selector behavior:
 `multi-pwsh install 7.4.x` installs every available patch release in that line for your current platform and creates per-version aliases such as `pwsh-7.4.11`.
 The `pwsh-7.4` alias tracks latest by default; pin it with `multi-pwsh alias set 7.4 7.4.11` and unpin with `multi-pwsh alias unset 7.4`.
 If a pinned target version is not installed, the pin remains in metadata and the alias stays unresolved until you install that version or unpin.
+
+Native host mode:
+
+- `multi-pwsh host <selector> ...` runs PowerShell through native hosting (`pwsh-host` crate) instead of launching a `pwsh` subprocess.
+- `<selector>` supports `7`, `7.4`, `7.4.13`, or alias-form selectors such as `pwsh-7.4`.
+- Alias lifecycle now maintains native host shims as hard links to `multi-pwsh` automatically during install/update/doctor alias repair.
+- On Windows, host shims are `pwsh-*.exe` files alongside `.cmd` wrappers in `~/.pwsh/bin`.
+- On Linux/macOS, alias command paths (`pwsh-*`) are hard links to `multi-pwsh`.
+- `multi-pwsh doctor --repair-aliases` performs a shim health check and re-links broken hard links automatically.
+- You can still manually copy/rename `multi-pwsh.exe` under `~/.pwsh/bin` to an alias-like name (for example `pwsh-7.4.exe`); it automatically enters host mode and resolves the target installation from that alias name.
+- `-NamedPipeCommand <pipeName>` is supported in host mode (Windows only), matching `pwsh-host` behavior.
 
 Download cache behavior can be controlled with environment variables:
 

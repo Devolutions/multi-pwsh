@@ -7,6 +7,7 @@ mod host_detect;
 mod host_exit_code;
 mod hostfxr;
 mod loader;
+mod named_pipe_command;
 mod pwsh_cli;
 mod tests;
 mod time;
@@ -23,4 +24,5 @@ extern crate quick_error;
 mod pdcstring;
 
 pub use bindings::PowerShell;
-pub use pwsh_cli::run_pwsh_command_line;
+pub use named_pipe_command::{preprocess_named_pipe_command_args, NamedPipeCommandError};
+pub use pwsh_cli::{run_pwsh_command_line, run_pwsh_command_line_for_pwsh_dir, run_pwsh_command_line_for_pwsh_exe};

@@ -38,6 +38,9 @@ pub enum MultiPwshError {
 
     #[error("alias creation failed: {0}")]
     AliasCreation(String),
+
+    #[error("host error: {0}")]
+    Host(String),
 }
 
 impl From<zip::result::ZipError> for MultiPwshError {

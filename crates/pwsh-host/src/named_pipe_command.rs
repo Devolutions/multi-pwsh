@@ -2,8 +2,6 @@ use std::error::Error;
 use std::ffi::{OsStr, OsString};
 use std::fmt::{Display, Formatter};
 
-use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
-
 const NAMED_PIPE_COMMAND_FLAG: &str = "-namedpipecommand";
 const ENCODED_COMMAND_FLAG: &str = "-EncodedCommand";
 #[cfg(windows)]
@@ -119,7 +117,7 @@ fn rewrite_with_encoded_command(args: &[OsString], named_pipe_index: usize, enco
 
 fn encode_utf16le_base64(command: &str) -> String {
     let bytes: Vec<u8> = command.encode_utf16().flat_map(|value| value.to_le_bytes()).collect();
-    BASE64_STANDARD.encode(bytes)
+    base64::encode(bytes)
 }
 
 #[cfg(windows)]
