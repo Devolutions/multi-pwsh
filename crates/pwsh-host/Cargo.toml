@@ -1,6 +1,6 @@
 [package]
 name = "pwsh-host"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2018"
 license = "MIT/Apache-2.0"
 homepage = "https://github.com/Devolutions/pwsh-host-rs"

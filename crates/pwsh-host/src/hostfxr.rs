@@ -1,6 +1,7 @@
 use std::borrow::BorrowMut;
 use std::ffi::OsStr;
 use std::io;
+use std::path::Path;
 
 use dlopen::wrapper::{Container, WrapperApi};
 
@@ -247,7 +248,11 @@ impl Hostfxr {
 #[allow(dead_code)]
 pub fn load_hostfxr() -> Result<Hostfxr, Box<dyn std::error::Error>> {
     let pwsh_path = pwsh_host_detect()?;
-    Hostfxr::load_from_path(pwsh_path.join(if cfg!(target_os = "windows") {
+    load_hostfxr_from_pwsh_dir(pwsh_path)
+}
+
+pub fn load_hostfxr_from_pwsh_dir(pwsh_dir: impl AsRef<Path>) -> Result<Hostfxr, Box<dyn std::error::Error>> {
+    Hostfxr::load_from_path(pwsh_dir.as_ref().join(if cfg!(target_os = "windows") {
         "hostfxr.dll"
     } else if cfg!(target_os = "linux") {
         "libhostfxr.so"

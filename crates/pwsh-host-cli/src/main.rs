@@ -1,8 +1,6 @@
-mod named_pipe_command;
-
 fn main() {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
-    let args = match named_pipe_command::preprocess_named_pipe_command_args(args) {
+    let args = match pwsh_host::preprocess_named_pipe_command_args(args) {
         Ok(args) => args,
         Err(error) => {
             eprintln!("pwsh-host: {}", error);

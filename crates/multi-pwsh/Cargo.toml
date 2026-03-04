@@ -1,6 +1,6 @@
 [package]
 name = "multi-pwsh"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2018"
 license = "MIT/Apache-2.0"
 description = "Install and update side-by-side PowerShell versions in user context"
@@ -20,6 +20,7 @@ tar = "0.4"
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
 home = "0.5"
 tempfile = "3.12"
+pwsh-host = { path = "../pwsh-host" }
 
 [build-dependencies]
 winresource = "0.1"

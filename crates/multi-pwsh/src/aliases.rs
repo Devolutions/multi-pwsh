@@ -2,6 +2,9 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+#[cfg(unix)]
+use std::os::unix::fs::MetadataExt;
+
 use semver::Version;
 use serde::{Deserialize, Serialize};
 
@@ -59,23 +62,16 @@ fn create_or_update_alias_with_selector(
     let alias_file = alias_file_name(&selector, os);
     let alias_path = layout.bin_dir().join(alias_file);
 
-    if os == HostOs::Windows {
-        let legacy_exe_alias = layout.bin_dir().join(format!("{}.exe", alias_command));
-        if legacy_exe_alias != alias_path && legacy_exe_alias.exists() {
-            fs::remove_file(&legacy_exe_alias)?;
-        }
-    }
-
-    if alias_path.exists() {
-        fs::remove_file(&alias_path)?;
-    }
-
     match os {
         HostOs::Windows => {
+            if alias_path.exists() {
+                fs::remove_file(&alias_path)?;
+            }
             create_windows_cmd_alias(target, &alias_path)?;
+            create_or_update_windows_host_shim(layout, &alias_command)?;
         }
         HostOs::Linux | HostOs::Macos => {
-            create_symlink(target, &alias_path)?;
+            create_or_update_posix_host_shim(layout, &alias_command)?;
         }
     }
 
@@ -95,6 +91,14 @@ pub fn remove_alias(layout: &InstallLayout, os: HostOs, alias_command: &str) -> 
         removed = true;
     }
 
+    if os == HostOs::Windows {
+        let host_shim_path = layout.bin_dir().join(format!("{}.exe", alias_command));
+        if host_shim_path.exists() {
+            fs::remove_file(host_shim_path)?;
+            removed = true;
+        }
+    }
+
     let mut document = read_alias_document(layout)?;
     if document.aliases.remove(alias_command).is_some() {
         write_alias_document(layout, &document)?;
@@ -102,6 +106,33 @@ pub fn remove_alias(layout: &InstallLayout, os: HostOs, alias_command: &str) -> 
     }
 
     Ok(removed)
+}
+
+pub fn repair_host_shim_if_needed(layout: &InstallLayout, os: HostOs, alias_command: &str) -> Result<bool> {
+    #[cfg(windows)]
+    {
+        if os == HostOs::Windows {
+            return create_or_update_windows_host_shim(layout, alias_command);
+        }
+    }
+
+    #[cfg(unix)]
+    {
+        if matches!(os, HostOs::Linux | HostOs::Macos) {
+            return create_or_update_posix_host_shim(layout, alias_command);
+        }
+    }
+
+    #[cfg(not(any(windows, unix)))]
+    {
+        let _ = (layout, os, alias_command);
+        Ok(false)
+    }
+
+    #[cfg(any(windows, unix))]
+    {
+        Ok(false)
+    }
 }
 
 pub fn parse_alias_command_selector(alias_command: &str) -> Option<AliasSelector> {
@@ -206,21 +237,6 @@ fn alias_command_name(selector: &AliasSelector) -> String {
     }
 }
 
-#[cfg(unix)]
-fn create_symlink(target: &Path, link_path: &Path) -> Result<()> {
-    use std::os::unix::fs::symlink;
-
-    symlink(target, link_path)?;
-    Ok(())
-}
-
-#[cfg(not(unix))]
-fn create_symlink(_target: &Path, _link_path: &Path) -> Result<()> {
-    Err(MultiPwshError::AliasCreation(
-        "symlink is not available on this platform".to_string(),
-    ))
-}
-
 #[cfg(windows)]
 fn create_windows_cmd_alias(target: &Path, alias_path: &Path) -> Result<()> {
     let target_string = target
@@ -239,6 +255,135 @@ fn create_windows_cmd_alias(target: &Path, alias_path: &Path) -> Result<()> {
     })?;
 
     Ok(())
+}
+
+#[cfg(windows)]
+fn create_or_update_windows_host_shim(layout: &InstallLayout, alias_command: &str) -> Result<bool> {
+    let alias_exe_path = layout.bin_dir().join(format!("{}.exe", alias_command));
+    let source_exe = resolve_host_shim_source(layout)?;
+
+    if alias_exe_path == source_exe {
+        return Ok(false);
+    }
+
+    if alias_exe_path.exists() {
+        if are_hard_links_to_same_file(&source_exe, &alias_exe_path) {
+            return Ok(false);
+        }
+
+        fs::remove_file(&alias_exe_path)?;
+    }
+
+    fs::hard_link(&source_exe, &alias_exe_path).map_err(|error| {
+        MultiPwshError::AliasCreation(format!(
+            "failed to create windows host shim hard link '{}' from '{}': {}",
+            alias_exe_path.display(),
+            source_exe.display(),
+            error
+        ))
+    })?;
+
+    Ok(true)
+}
+
+#[cfg(not(windows))]
+fn create_or_update_windows_host_shim(_layout: &InstallLayout, _alias_command: &str) -> Result<bool> {
+    Err(MultiPwshError::AliasCreation(
+        "windows host shim hard links are not available on this platform".to_string(),
+    ))
+}
+
+#[cfg(unix)]
+fn create_or_update_posix_host_shim(layout: &InstallLayout, alias_command: &str) -> Result<bool> {
+    let alias_path = layout.bin_dir().join(alias_command);
+    let source_exe = resolve_host_shim_source(layout)?;
+
+    if alias_path == source_exe {
+        return Ok(false);
+    }
+
+    if alias_path.exists() {
+        if are_posix_hard_links_to_same_file(&source_exe, &alias_path)? {
+            return Ok(false);
+        }
+
+        fs::remove_file(&alias_path)?;
+    }
+
+    fs::hard_link(&source_exe, &alias_path).map_err(|error| {
+        MultiPwshError::AliasCreation(format!(
+            "failed to create host shim hard link '{}' from '{}': {}",
+            alias_path.display(),
+            source_exe.display(),
+            error
+        ))
+    })?;
+
+    Ok(true)
+}
+
+#[cfg(not(unix))]
+fn create_or_update_posix_host_shim(_layout: &InstallLayout, _alias_command: &str) -> Result<bool> {
+    Err(MultiPwshError::AliasCreation(
+        "posix host shim hard links are not available on this platform".to_string(),
+    ))
+}
+
+#[cfg(unix)]
+fn are_posix_hard_links_to_same_file(left: &Path, right: &Path) -> Result<bool> {
+    let left = fs::metadata(left)?;
+    let right = fs::metadata(right)?;
+    Ok(left.dev() == right.dev() && left.ino() == right.ino())
+}
+
+#[cfg(windows)]
+fn are_hard_links_to_same_file(left: &Path, right: &Path) -> bool {
+    let right_text = right.to_string_lossy().into_owned();
+
+    let output = match std::process::Command::new("cmd")
+        .args(["/C", "fsutil", "hardlink", "list", &right_text])
+        .output()
+    {
+        Ok(output) if output.status.success() => output,
+        _ => return false,
+    };
+
+    let output_text = String::from_utf8_lossy(&output.stdout).to_ascii_lowercase();
+    let left_text = left.to_string_lossy().replace('/', "\\").to_ascii_lowercase();
+
+    if output_text.contains(&left_text) {
+        return true;
+    }
+
+    let left_without_drive = strip_drive_prefix(&left_text);
+    output_text.contains(&left_without_drive)
+}
+
+#[cfg(windows)]
+fn strip_drive_prefix(path: &str) -> String {
+    if path.len() >= 2 && path.as_bytes()[1] == b':' {
+        return path[2..].to_string();
+    }
+
+    path.to_string()
+}
+
+fn resolve_host_shim_source(layout: &InstallLayout) -> Result<PathBuf> {
+    let preferred = layout
+        .bin_dir()
+        .join(format!("multi-pwsh{}", std::env::consts::EXE_SUFFIX));
+    if preferred.exists() {
+        return Ok(preferred);
+    }
+
+    let current = std::env::current_exe()?;
+    if current.exists() {
+        return Ok(current);
+    }
+
+    Err(MultiPwshError::AliasCreation(
+        "unable to locate multi-pwsh executable to build host shims".to_string(),
+    ))
 }
 
 #[cfg(not(windows))]
