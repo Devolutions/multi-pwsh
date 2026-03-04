@@ -160,13 +160,23 @@ fn paths_refer_to_same_location(left: &Path, right: &Path) -> bool {
     }
 }
 
+fn executable_selector_name(executable_path: &Path) -> Option<String> {
+    let file_name = executable_path.file_name()?.to_str()?;
+
+    if file_name.len() > 4 && file_name.to_ascii_lowercase().ends_with(".exe") {
+        return Some(file_name[..file_name.len() - 4].to_string());
+    }
+
+    Some(file_name.to_string())
+}
+
 fn detect_implicit_host_selector(bin_dir: &Path, executable_path: &Path) -> Option<String> {
-    let stem = executable_path.file_stem()?.to_str()?;
-    if stem.eq_ignore_ascii_case("multi-pwsh") {
+    let selector = executable_selector_name(executable_path)?;
+    if selector.eq_ignore_ascii_case("multi-pwsh") {
         return None;
     }
 
-    if parse_alias_command_selector(stem).is_none() {
+    if parse_alias_command_selector(&selector).is_none() {
         return None;
     }
 
@@ -175,17 +185,17 @@ fn detect_implicit_host_selector(bin_dir: &Path, executable_path: &Path) -> Opti
         return None;
     }
 
-    Some(stem.to_string())
+    Some(selector)
 }
 
 fn run_implicit_host_mode_if_needed() -> Result<Option<i32>> {
     let executable_path = env::current_exe()?;
 
-    let stem = match executable_path.file_stem().and_then(|value| value.to_str()) {
-        Some(stem) => stem,
+    let selector_name = match executable_selector_name(&executable_path) {
+        Some(selector_name) => selector_name,
         None => return Ok(None),
     };
-    if stem.eq_ignore_ascii_case("multi-pwsh") || parse_alias_command_selector(stem).is_none() {
+    if selector_name.eq_ignore_ascii_case("multi-pwsh") || parse_alias_command_selector(&selector_name).is_none() {
         return Ok(None);
     }
 
@@ -963,6 +973,14 @@ mod tests {
         let bin_dir = PathBuf::from("C:/Users/test/.pwsh/bin");
 
         let selector = detect_implicit_host_selector(&bin_dir, &bin_dir.join("pwsh-7.4.exe"));
+        assert_eq!(selector, Some("pwsh-7.4".to_string()));
+    }
+
+    #[test]
+    fn detect_implicit_host_selector_accepts_posix_alias_with_dot() {
+        let bin_dir = PathBuf::from("/home/test/.pwsh/bin");
+
+        let selector = detect_implicit_host_selector(&bin_dir, &bin_dir.join("pwsh-7.4"));
         assert_eq!(selector, Some("pwsh-7.4".to_string()));
     }
 
