@@ -33,7 +33,7 @@ $workflowUpdated = $false
 foreach ($cargoFile in $cargoFiles) {
     $content = [System.IO.File]::ReadAllText($cargoFile)
 
-    $pattern = '(?ms)^(\[package\]\s*.*?^version\s*=\s*")(?<current>[^"]+)(")'
+    $pattern = '(?ms)^(\[package\]\s*.*?^version\s*=\s*")(?<current>[^"\r\n]+)(")'
     $match = [System.Text.RegularExpressions.Regex]::Match($content, $pattern)
     if (-not $match.Success) {
         throw "Could not find package version field in $cargoFile"
