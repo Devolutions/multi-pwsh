@@ -11,6 +11,7 @@ pub struct InstallLayout {
     home: PathBuf,
     bin_dir: PathBuf,
     cache_dir: PathBuf,
+    venvs_dir: PathBuf,
     os: HostOs,
 }
 
@@ -26,11 +27,15 @@ impl InstallLayout {
         let cache_dir = env::var_os("MULTI_PWSH_CACHE_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|| home.join("cache"));
+        let venvs_dir = env::var_os("MULTI_PWSH_VENV_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join("venv"));
 
         Ok(InstallLayout {
             home,
             bin_dir,
             cache_dir,
+            venvs_dir,
             os,
         })
     }
@@ -49,6 +54,14 @@ impl InstallLayout {
 
     pub fn cache_dir(&self) -> PathBuf {
         self.cache_dir.clone()
+    }
+
+    pub fn venvs_dir(&self) -> PathBuf {
+        self.venvs_dir.clone()
+    }
+
+    pub fn venv_dir(&self, name: &str) -> PathBuf {
+        self.venvs_dir().join(name)
     }
 
     pub fn versions_dir(&self) -> PathBuf {
@@ -106,6 +119,7 @@ impl InstallLayout {
         fs::create_dir_all(&self.home)?;
         fs::create_dir_all(self.bin_dir())?;
         fs::create_dir_all(self.cache_dir())?;
+        fs::create_dir_all(self.venvs_dir())?;
         fs::create_dir_all(self.versions_dir())?;
         Ok(())
     }
@@ -119,7 +133,7 @@ impl InstallLayout {
         collect_versions_from_dir(&self.versions_dir(), &[], self.executable_name(), &mut versions)?;
         collect_versions_from_dir(
             self.home(),
-            &["bin", "cache", "multi"],
+            &["bin", "cache", "multi", "venv"],
             self.executable_name(),
             &mut versions,
         )?;
@@ -197,13 +211,16 @@ mod tests {
         home: Option<&Path>,
         bin_dir: Option<&Path>,
         cache_dir: Option<&Path>,
+        venv_dir: Option<&Path>,
         action: impl FnOnce() -> T,
     ) -> T {
         let _guard = ENV_LOCK.lock().unwrap();
 
         with_env_var("MULTI_PWSH_HOME", home, || {
             with_env_var("MULTI_PWSH_BIN_DIR", bin_dir, || {
-                with_env_var("MULTI_PWSH_CACHE_DIR", cache_dir, action)
+                with_env_var("MULTI_PWSH_CACHE_DIR", cache_dir, || {
+                    with_env_var("MULTI_PWSH_VENV_DIR", venv_dir, action)
+                })
             })
         })
     }
@@ -213,11 +230,13 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let expected_home = temp_dir.path().join("pwsh-home");
 
-        with_layout_env(Some(&expected_home), None, None, || {
+        with_layout_env(Some(&expected_home), None, None, None, || {
             let layout = InstallLayout::new(HostOs::Windows).unwrap();
             assert_eq!(layout.home(), expected_home.as_path());
             assert_eq!(layout.bin_dir(), expected_home.join("bin"));
             assert_eq!(layout.cache_dir(), expected_home.join("cache"));
+            assert_eq!(layout.venvs_dir(), expected_home.join("venv"));
+            assert_eq!(layout.venv_dir("msgraph"), expected_home.join("venv").join("msgraph"));
             assert_eq!(layout.versions_dir(), expected_home.join("multi"));
             assert_eq!(layout.aliases_file(), expected_home.join("aliases.json"));
         });
@@ -230,11 +249,33 @@ mod tests {
         let expected_bin = temp_dir.path().join("shims");
         let expected_cache = temp_dir.path().join("cache-root");
 
-        with_layout_env(Some(&expected_home), Some(&expected_bin), Some(&expected_cache), || {
+        with_layout_env(
+            Some(&expected_home),
+            Some(&expected_bin),
+            Some(&expected_cache),
+            None,
+            || {
+                let layout = InstallLayout::new(HostOs::Linux).unwrap();
+                assert_eq!(layout.home(), expected_home.as_path());
+                assert_eq!(layout.bin_dir(), expected_bin);
+                assert_eq!(layout.cache_dir(), expected_cache);
+                assert_eq!(layout.venvs_dir(), expected_home.join("venv"));
+                assert_eq!(layout.versions_dir(), expected_home.join("multi"));
+            },
+        );
+    }
+
+    #[test]
+    fn layout_uses_explicit_venv_override() {
+        let temp_dir = TempDir::new().unwrap();
+        let expected_home = temp_dir.path().join("pwsh-home");
+        let expected_venv = temp_dir.path().join("venvs-root");
+
+        with_layout_env(Some(&expected_home), None, None, Some(&expected_venv), || {
             let layout = InstallLayout::new(HostOs::Linux).unwrap();
             assert_eq!(layout.home(), expected_home.as_path());
-            assert_eq!(layout.bin_dir(), expected_bin);
-            assert_eq!(layout.cache_dir(), expected_cache);
+            assert_eq!(layout.venvs_dir(), expected_venv);
+            assert_eq!(layout.venv_dir("msgraph"), expected_venv.join("msgraph"));
             assert_eq!(layout.versions_dir(), expected_home.join("multi"));
         });
     }
@@ -247,7 +288,7 @@ mod tests {
         let legacy_dir = expected_home.join(version.to_string());
         fs::create_dir_all(&legacy_dir).unwrap();
 
-        with_layout_env(Some(&expected_home), None, None, || {
+        with_layout_env(Some(&expected_home), None, None, None, || {
             let layout = InstallLayout::new(HostOs::Linux).unwrap();
             assert_eq!(layout.version_dir(&version), legacy_dir);
             assert_eq!(
@@ -271,7 +312,7 @@ mod tests {
         fs::write(new_dir.join("pwsh"), "").unwrap();
         fs::write(legacy_dir.join("pwsh"), "").unwrap();
 
-        with_layout_env(Some(&expected_home), None, None, || {
+        with_layout_env(Some(&expected_home), None, None, None, || {
             let layout = InstallLayout::new(HostOs::Linux).unwrap();
             assert_eq!(layout.installed_versions().unwrap(), vec![new_version, legacy_version]);
         });

@@ -7,9 +7,10 @@ mod release;
 mod versions;
 
 use std::env;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::io;
+use std::path::{Component, Path, PathBuf};
 use std::process;
 
 use semver::Version;
@@ -30,10 +31,13 @@ use versions::{
 
 const POWERSHELL_UPDATECHECK_ENV_VAR: &str = "POWERSHELL_UPDATECHECK";
 const POWERSHELL_UPDATECHECK_OFF: &str = "Off";
+const PSMODULEPATH_ENV_VAR: &str = "PSModulePath";
+const VIRTUAL_ENVIRONMENT_FLAG: &str = "-virtualenvironment";
+const VIRTUAL_ENVIRONMENT_SHORT_FLAG: &str = "-venv";
 
 fn print_usage() {
     eprintln!(
-        "Usage:\n  multi-pwsh install <version|major|major.minor|major.minor.x> [--arch <auto|x64|x86|arm64|arm32>] [--include-prerelease]\n  multi-pwsh update <major.minor> [--arch <auto|x64|x86|arm64|arm32>] [--include-prerelease]\n  multi-pwsh uninstall <version> [--force]\n  multi-pwsh list [--available] [--include-prerelease]\n  multi-pwsh alias set <major.minor> <version|latest>\n  multi-pwsh alias unset <major.minor>\n  multi-pwsh host <version|major|major.minor|pwsh-alias> [pwsh arguments...]\n  multi-pwsh doctor --repair-aliases"
+        "Usage:\n  multi-pwsh install <version|major|major.minor|major.minor.x> [--arch <auto|x64|x86|arm64|arm32>] [--include-prerelease]\n  multi-pwsh update <major.minor> [--arch <auto|x64|x86|arm64|arm32>] [--include-prerelease]\n  multi-pwsh uninstall <version> [--force]\n  multi-pwsh list [--available] [--include-prerelease]\n  multi-pwsh venv create <name>\n  multi-pwsh venv delete <name>\n  multi-pwsh venv export <name> <archive.zip>\n  multi-pwsh venv import <name> <archive.zip>\n  multi-pwsh venv list\n  multi-pwsh alias set <major.minor> <version|latest>\n  multi-pwsh alias unset <major.minor>\n  multi-pwsh host <version|major|major.minor|pwsh-alias> [-VirtualEnvironment <name>|-venv <name>] [pwsh arguments...]\n  multi-pwsh doctor --repair-aliases"
     );
 }
 
@@ -45,6 +49,34 @@ struct ReleaseSelectionOptions {
 enum ListOption {
     Installed,
     Available { include_prerelease: bool },
+}
+
+#[derive(Debug, Default, Eq, PartialEq)]
+struct HostLaunchOptions {
+    pwsh_args: Vec<OsString>,
+    virtual_environment: Option<String>,
+}
+
+struct ProcessEnvVarGuard {
+    key: &'static str,
+    previous: Option<OsString>,
+}
+
+impl ProcessEnvVarGuard {
+    fn set(key: &'static str, value: impl AsRef<OsStr>) -> Self {
+        let previous = env::var_os(key);
+        unsafe { env::set_var(key, value) };
+        Self { key, previous }
+    }
+}
+
+impl Drop for ProcessEnvVarGuard {
+    fn drop(&mut self) {
+        match &self.previous {
+            Some(value) => unsafe { env::set_var(self.key, value) },
+            None => unsafe { env::remove_var(self.key) },
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -123,13 +155,257 @@ fn resolve_host_executable(layout: &InstallLayout, selector_input: &str) -> Resu
     Ok((version, executable))
 }
 
-fn preprocess_host_args(args: Vec<OsString>) -> Result<Vec<OsString>> {
-    pwsh_host::preprocess_named_pipe_command_args(args)
-        .map_err(|error| MultiPwshError::Host(format!("invalid host arguments: {}", error)))
+fn validate_venv_name(value: &str) -> Result<&str> {
+    if value.is_empty() {
+        return Err(MultiPwshError::InvalidArguments(
+            "virtual environment name cannot be empty".to_string(),
+        ));
+    }
+
+    if value == "." || value == ".." {
+        return Err(MultiPwshError::InvalidArguments(format!(
+            "virtual environment name '{}' is reserved",
+            value
+        )));
+    }
+
+    if value
+        .chars()
+        .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.'))
+    {
+        return Ok(value);
+    }
+
+    Err(MultiPwshError::InvalidArguments(format!(
+        "virtual environment name '{}' is invalid; expected only ASCII letters, digits, '.', '-', or '_'",
+        value
+    )))
+}
+
+fn normalize_host_flag(arg: &OsStr) -> String {
+    arg.to_string_lossy().to_ascii_lowercase()
+}
+
+fn is_virtual_environment_flag(arg: &OsStr) -> bool {
+    matches!(
+        normalize_host_flag(arg).as_str(),
+        VIRTUAL_ENVIRONMENT_FLAG | VIRTUAL_ENVIRONMENT_SHORT_FLAG
+    )
+}
+
+fn is_option_like(arg: &OsStr) -> bool {
+    let text = arg.to_string_lossy();
+    text.starts_with('-') || text.starts_with('/')
+}
+
+fn extract_virtual_environment_arg(args: Vec<OsString>) -> Result<(Vec<OsString>, Option<String>)> {
+    let mut virtual_environment_index = None;
+    let mut virtual_environment_name = None;
+
+    for (index, arg) in args.iter().enumerate() {
+        if !is_virtual_environment_flag(arg.as_os_str()) {
+            continue;
+        }
+
+        if virtual_environment_index.is_some() {
+            return Err(MultiPwshError::InvalidArguments(
+                "-VirtualEnvironment can only be specified once".to_string(),
+            ));
+        }
+
+        let value = args.get(index + 1).ok_or_else(|| {
+            MultiPwshError::InvalidArguments("-VirtualEnvironment requires a virtual environment name".to_string())
+        })?;
+
+        if is_option_like(value.as_os_str()) {
+            return Err(MultiPwshError::InvalidArguments(
+                "-VirtualEnvironment requires a virtual environment name".to_string(),
+            ));
+        }
+
+        let value = value.to_string_lossy().into_owned();
+        validate_venv_name(&value)?;
+
+        virtual_environment_index = Some(index);
+        virtual_environment_name = Some(value);
+    }
+
+    let Some(index) = virtual_environment_index else {
+        return Ok((args, None));
+    };
+
+    let mut rewritten = Vec::with_capacity(args.len().saturating_sub(2));
+    rewritten.extend_from_slice(&args[..index]);
+    rewritten.extend_from_slice(&args[index + 2..]);
+
+    Ok((rewritten, virtual_environment_name))
+}
+
+fn preprocess_host_args(args: Vec<OsString>) -> Result<HostLaunchOptions> {
+    let (args, virtual_environment) = extract_virtual_environment_arg(args)?;
+    let pwsh_args = pwsh_host::preprocess_named_pipe_command_args(args)
+        .map_err(|error| MultiPwshError::Host(format!("invalid host arguments: {}", error)))?;
+
+    Ok(HostLaunchOptions {
+        pwsh_args,
+        virtual_environment,
+    })
 }
 
 fn disable_powershell_update_notifications() {
     unsafe { env::set_var(POWERSHELL_UPDATECHECK_ENV_VAR, POWERSHELL_UPDATECHECK_OFF) };
+}
+
+fn resolve_virtual_environment_dir(layout: &InstallLayout, name: &str) -> Result<PathBuf> {
+    let name = validate_venv_name(name)?;
+    let venv_dir = layout.venv_dir(name);
+
+    if !venv_dir.is_dir() {
+        return Err(MultiPwshError::InvalidArguments(format!(
+            "virtual environment '{}' was not found at {}; create it with: multi-pwsh venv create {}",
+            name,
+            venv_dir.display(),
+            name
+        )));
+    }
+
+    Ok(venv_dir)
+}
+
+fn zip_file_options() -> zip::write::FileOptions {
+    zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated)
+}
+
+fn format_archive_entry_name(path: &Path) -> String {
+    path.components()
+        .filter_map(|component| match component {
+            Component::Normal(value) => Some(value.to_string_lossy()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+fn append_directory_to_zip<W: io::Write + io::Seek>(
+    writer: &mut zip::ZipWriter<W>,
+    root_dir: &Path,
+    current_dir: &Path,
+) -> Result<()> {
+    let mut entries: Vec<_> = fs::read_dir(current_dir)?.collect::<std::result::Result<Vec<_>, _>>()?;
+    entries.sort_by_key(|entry| entry.file_name());
+
+    for entry in entries {
+        let entry_path = entry.path();
+        let relative_path = entry_path.strip_prefix(root_dir).map_err(|error| {
+            MultiPwshError::Archive(format!(
+                "failed to strip archive root '{}' from '{}': {}",
+                root_dir.display(),
+                entry_path.display(),
+                error
+            ))
+        })?;
+        let archive_name = format_archive_entry_name(relative_path);
+
+        if entry_path.is_dir() {
+            writer.add_directory(format!("{}/", archive_name), zip_file_options())?;
+            append_directory_to_zip(writer, root_dir, &entry_path)?;
+            continue;
+        }
+
+        writer.start_file(archive_name, zip_file_options())?;
+        let mut source = fs::File::open(&entry_path)?;
+        io::copy(&mut source, writer)?;
+    }
+
+    Ok(())
+}
+
+fn export_virtual_environment_to_archive(venv_dir: &Path, archive_path: &Path) -> Result<()> {
+    if let Some(parent) = archive_path.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent)?;
+        }
+    }
+
+    let archive_file = fs::File::create(archive_path)?;
+    let mut writer = zip::ZipWriter::new(archive_file);
+    append_directory_to_zip(&mut writer, venv_dir, venv_dir)?;
+    writer.finish()?;
+    Ok(())
+}
+
+fn sanitize_archive_entry_path(name: &str) -> Result<PathBuf> {
+    let mut sanitized = PathBuf::new();
+
+    for component in Path::new(name).components() {
+        match component {
+            Component::CurDir => {}
+            Component::Normal(value) => sanitized.push(value),
+            Component::Prefix(_) | Component::RootDir | Component::ParentDir => {
+                return Err(MultiPwshError::Archive(format!(
+                    "archive entry '{}' contains an invalid path",
+                    name
+                )));
+            }
+        }
+    }
+
+    Ok(sanitized)
+}
+
+fn import_virtual_environment_from_archive(venv_dir: &Path, archive_path: &Path) -> Result<()> {
+    if !archive_path.is_file() {
+        return Err(MultiPwshError::InvalidArguments(format!(
+            "archive '{}' was not found",
+            archive_path.display()
+        )));
+    }
+
+    if venv_dir.exists() {
+        return Err(MultiPwshError::InvalidArguments(format!(
+            "virtual environment destination '{}' already exists",
+            venv_dir.display()
+        )));
+    }
+
+    fs::create_dir_all(venv_dir)?;
+
+    let import_result = (|| -> Result<()> {
+        let archive_file = fs::File::open(archive_path)?;
+        let mut archive = zip::ZipArchive::new(archive_file)?;
+
+        for index in 0..archive.len() {
+            let mut entry = archive.by_index(index)?;
+            let relative_path = sanitize_archive_entry_path(entry.name())?;
+
+            if relative_path.as_os_str().is_empty() {
+                continue;
+            }
+
+            let destination_path = venv_dir.join(relative_path);
+
+            if entry.is_dir() {
+                fs::create_dir_all(&destination_path)?;
+                continue;
+            }
+
+            if let Some(parent) = destination_path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+
+            let mut destination = fs::File::create(&destination_path)?;
+            io::copy(&mut entry, &mut destination)?;
+        }
+
+        Ok(())
+    })();
+
+    if let Err(error) = import_result {
+        let _ = fs::remove_dir_all(venv_dir);
+        return Err(error);
+    }
+
+    Ok(())
 }
 
 fn run_host_mode(selector_input: &str, pwsh_args: Vec<OsString>) -> Result<i32> {
@@ -138,10 +414,19 @@ fn run_host_mode(selector_input: &str, pwsh_args: Vec<OsString>) -> Result<i32> 
     layout.ensure_base_dirs()?;
 
     let (_version, executable) = resolve_host_executable(&layout, selector_input)?;
-    let args = preprocess_host_args(pwsh_args)?;
+    let HostLaunchOptions {
+        pwsh_args,
+        virtual_environment,
+    } = preprocess_host_args(pwsh_args)?;
     disable_powershell_update_notifications();
 
-    pwsh_host::run_pwsh_command_line_for_pwsh_exe(&executable, args).map_err(|error| {
+    let _virtual_environment_guard = virtual_environment
+        .as_deref()
+        .map(|name| resolve_virtual_environment_dir(&layout, name))
+        .transpose()?
+        .map(|venv_dir| ProcessEnvVarGuard::set(PSMODULEPATH_ENV_VAR, venv_dir.as_os_str()));
+
+    pwsh_host::run_pwsh_command_line_for_pwsh_exe(&executable, pwsh_args).map_err(|error| {
         MultiPwshError::Host(format!(
             "failed to start native host for selector '{}': {}",
             selector_input, error
@@ -152,7 +437,8 @@ fn run_host_mode(selector_input: &str, pwsh_args: Vec<OsString>) -> Result<i32> 
 fn run_host_command(args: &[String]) -> Result<i32> {
     if args.is_empty() {
         return Err(MultiPwshError::InvalidArguments(
-            "host requires: <version|major|major.minor|pwsh-alias> [pwsh arguments...]".to_string(),
+            "host requires: <version|major|major.minor|pwsh-alias> [-VirtualEnvironment <name>|-venv <name>] [pwsh arguments...]"
+                .to_string(),
         ));
     }
 
@@ -261,6 +547,133 @@ fn parse_alias_set_target(target: &str) -> Result<Option<Version>> {
 
     let version = parse_exact_version(target)?;
     Ok(Some(version))
+}
+
+fn run_venv(args: &[String]) -> Result<()> {
+    if args.is_empty() {
+        return Err(MultiPwshError::InvalidArguments(
+            "venv requires: create <name>, delete <name>, export <name> <archive.zip>, import <name> <archive.zip>, or list"
+                .to_string(),
+        ));
+    }
+
+    let os = HostOs::detect()?;
+    let layout = InstallLayout::new(os)?;
+    layout.ensure_base_dirs()?;
+
+    match args[0].as_str() {
+        "create" => {
+            if args.len() != 2 {
+                return Err(MultiPwshError::InvalidArguments(
+                    "venv create requires: <name>".to_string(),
+                ));
+            }
+
+            let name = validate_venv_name(&args[1])?;
+            let venv_dir = layout.venv_dir(name);
+            fs::create_dir_all(&venv_dir)?;
+
+            println!("Virtual environment: {}", name);
+            println!("Path: {}", venv_dir.display());
+            Ok(())
+        }
+        "delete" => {
+            if args.len() != 2 {
+                return Err(MultiPwshError::InvalidArguments(
+                    "venv delete requires: <name>".to_string(),
+                ));
+            }
+
+            let name = validate_venv_name(&args[1])?;
+            let venv_dir = layout.venv_dir(name);
+
+            if !venv_dir.is_dir() {
+                return Err(MultiPwshError::InvalidArguments(format!(
+                    "virtual environment '{}' was not found at {}",
+                    name,
+                    venv_dir.display()
+                )));
+            }
+
+            fs::remove_dir_all(&venv_dir)?;
+
+            println!("Deleted virtual environment: {}", name);
+            println!("Path: {}", venv_dir.display());
+            Ok(())
+        }
+        "export" => {
+            if args.len() != 3 {
+                return Err(MultiPwshError::InvalidArguments(
+                    "venv export requires: <name> <archive.zip>".to_string(),
+                ));
+            }
+
+            let name = validate_venv_name(&args[1])?;
+            let venv_dir = resolve_virtual_environment_dir(&layout, name)?;
+            let archive_path = PathBuf::from(&args[2]);
+
+            export_virtual_environment_to_archive(&venv_dir, &archive_path)?;
+
+            println!("Exported virtual environment: {}", name);
+            println!("Archive: {}", archive_path.display());
+            Ok(())
+        }
+        "import" => {
+            if args.len() != 3 {
+                return Err(MultiPwshError::InvalidArguments(
+                    "venv import requires: <name> <archive.zip>".to_string(),
+                ));
+            }
+
+            let name = validate_venv_name(&args[1])?;
+            let venv_dir = layout.venv_dir(name);
+            let archive_path = PathBuf::from(&args[2]);
+
+            import_virtual_environment_from_archive(&venv_dir, &archive_path)?;
+
+            println!("Imported virtual environment: {}", name);
+            println!("Path: {}", venv_dir.display());
+            println!("Archive: {}", archive_path.display());
+            Ok(())
+        }
+        "list" => {
+            if args.len() != 1 {
+                return Err(MultiPwshError::InvalidArguments(
+                    "venv list does not accept additional arguments".to_string(),
+                ));
+            }
+
+            let venvs_dir = layout.venvs_dir();
+            println!("Venv root: {}", venvs_dir.display());
+
+            let mut entries: Vec<String> = fs::read_dir(&venvs_dir)?
+                .filter_map(|entry| {
+                    let entry = entry.ok()?;
+                    if !entry.path().is_dir() {
+                        return None;
+                    }
+
+                    entry.file_name().into_string().ok()
+                })
+                .collect();
+            entries.sort();
+
+            if entries.is_empty() {
+                println!("Virtual environments: (none)");
+            } else {
+                println!("Virtual environments:");
+                for entry in entries {
+                    println!("  - {}", entry);
+                }
+            }
+
+            Ok(())
+        }
+        _ => Err(MultiPwshError::InvalidArguments(
+            "venv requires: create <name>, delete <name>, export <name> <archive.zip>, import <name> <archive.zip>, or list"
+                .to_string(),
+        )),
+    }
 }
 
 fn run_alias(args: &[String]) -> Result<()> {
@@ -685,6 +1098,7 @@ fn run_list(option: ListOption) -> Result<()> {
             println!("Home: {}", layout.home().display());
             println!("Alias bin: {}", layout.bin_dir().display());
             println!("Versions dir: {}", layout.versions_dir().display());
+            println!("Venv dir: {}", layout.venvs_dir().display());
             println!("Cache dir: {}", layout.cache_dir().display());
             println!();
 
@@ -872,6 +1286,7 @@ fn run() -> Result<()> {
             let list_option = parse_list_option(&args[1..])?;
             run_list(list_option)
         }
+        "venv" => run_venv(&args[1..]),
         "alias" => run_alias(&args[1..]),
         "host" => {
             let exit_code = run_host_command(&args[1..])?;
@@ -883,7 +1298,7 @@ fn run() -> Result<()> {
             Ok(())
         }
         command => Err(MultiPwshError::InvalidArguments(format!(
-            "unknown command '{}'. expected: install, update, uninstall, list, alias, host, doctor",
+            "unknown command '{}'. expected: install, update, uninstall, list, venv, alias, host, doctor",
             command
         ))),
     }
@@ -1004,7 +1419,10 @@ mod tests {
     fn disable_powershell_update_notifications_sets_off() {
         with_env_var(POWERSHELL_UPDATECHECK_ENV_VAR, Some("LTS"), || {
             disable_powershell_update_notifications();
-            assert_eq!(env::var(POWERSHELL_UPDATECHECK_ENV_VAR).unwrap(), POWERSHELL_UPDATECHECK_OFF);
+            assert_eq!(
+                env::var(POWERSHELL_UPDATECHECK_ENV_VAR).unwrap(),
+                POWERSHELL_UPDATECHECK_OFF
+            );
         });
     }
 
@@ -1078,5 +1496,105 @@ mod tests {
     fn parse_alias_set_target_accepts_exact_version() {
         let version = parse_alias_set_target("7.4.11").unwrap().unwrap();
         assert_eq!(version, Version::parse("7.4.11").unwrap());
+    }
+
+    #[test]
+    fn validate_venv_name_accepts_simple_name() {
+        assert_eq!(validate_venv_name("msgraph").unwrap(), "msgraph");
+        assert_eq!(validate_venv_name("graph-sdk_1.0").unwrap(), "graph-sdk_1.0");
+    }
+
+    #[test]
+    fn validate_venv_name_rejects_reserved_or_path_like_values() {
+        assert!(validate_venv_name("").is_err());
+        assert!(validate_venv_name("..").is_err());
+        assert!(validate_venv_name("msgraph/tools").is_err());
+    }
+
+    #[test]
+    fn extract_virtual_environment_arg_removes_host_only_pair() {
+        let args = vec![
+            OsString::from("-NoProfile"),
+            OsString::from("-VirtualEnvironment"),
+            OsString::from("msgraph"),
+            OsString::from("-Command"),
+            OsString::from("$env:PSModulePath"),
+        ];
+
+        let (rewritten, virtual_environment) = extract_virtual_environment_arg(args).unwrap();
+
+        assert_eq!(virtual_environment, Some("msgraph".to_string()));
+        assert_eq!(
+            rewritten,
+            vec![
+                OsString::from("-NoProfile"),
+                OsString::from("-Command"),
+                OsString::from("$env:PSModulePath"),
+            ]
+        );
+    }
+
+    #[test]
+    fn extract_virtual_environment_arg_rejects_duplicate_flag() {
+        let args = vec![
+            OsString::from("-VirtualEnvironment"),
+            OsString::from("one"),
+            OsString::from("-venv"),
+            OsString::from("two"),
+        ];
+
+        assert!(extract_virtual_environment_arg(args).is_err());
+    }
+
+    #[test]
+    fn extract_virtual_environment_arg_accepts_short_flag() {
+        let args = vec![
+            OsString::from("-venv"),
+            OsString::from("msgraph"),
+            OsString::from("-NoProfile"),
+        ];
+
+        let (rewritten, virtual_environment) = extract_virtual_environment_arg(args).unwrap();
+
+        assert_eq!(virtual_environment, Some("msgraph".to_string()));
+        assert_eq!(rewritten, vec![OsString::from("-NoProfile")]);
+    }
+
+    #[test]
+    fn preprocess_host_args_combines_virtual_environment_and_named_pipe_processing() {
+        let args = vec![
+            OsString::from("-VirtualEnvironment"),
+            OsString::from("msgraph"),
+            OsString::from("-NoProfile"),
+        ];
+
+        let options = preprocess_host_args(args).unwrap();
+        assert_eq!(options.virtual_environment, Some("msgraph".to_string()));
+        assert_eq!(options.pwsh_args, vec![OsString::from("-NoProfile")]);
+    }
+
+    #[test]
+    fn process_env_var_guard_restores_previous_value() {
+        with_env_var(PSMODULEPATH_ENV_VAR, Some("original"), || {
+            {
+                let _guard = ProcessEnvVarGuard::set(PSMODULEPATH_ENV_VAR, "override");
+                assert_eq!(env::var(PSMODULEPATH_ENV_VAR).unwrap(), "override");
+            }
+
+            assert_eq!(env::var(PSMODULEPATH_ENV_VAR).unwrap(), "original");
+        });
+    }
+
+    #[test]
+    fn sanitize_archive_entry_path_accepts_normal_relative_paths() {
+        assert_eq!(
+            sanitize_archive_entry_path("Module/1.0.0/Module.psm1").unwrap(),
+            PathBuf::from("Module").join("1.0.0").join("Module.psm1")
+        );
+    }
+
+    #[test]
+    fn sanitize_archive_entry_path_rejects_parent_segments() {
+        assert!(sanitize_archive_entry_path("../escape.txt").is_err());
     }
 }
