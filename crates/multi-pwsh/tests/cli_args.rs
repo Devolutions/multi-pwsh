@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Output};
 
 use serde_json::Value;
@@ -186,14 +186,44 @@ fn json_strings(value: &Value, key: &str) -> Vec<String> {
 }
 
 fn normalize_path_for_compare(path: &Path) -> String {
-    path.to_string_lossy().replace('/', "\\").to_ascii_lowercase()
+    let mut normalized = String::new();
+
+    for component in path.components() {
+        match component {
+            Component::Prefix(prefix) => {
+                normalized.push_str(
+                    &prefix
+                        .as_os_str()
+                        .to_string_lossy()
+                        .replace('/', "\\")
+                        .to_ascii_lowercase(),
+                );
+            }
+            Component::RootDir => normalized.push('\\'),
+            Component::Normal(part) => {
+                if !normalized.is_empty() && !normalized.ends_with('\\') {
+                    normalized.push('\\');
+                }
+                normalized.push_str(&part.to_string_lossy().to_ascii_lowercase());
+            }
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !normalized.is_empty() && !normalized.ends_with('\\') {
+                    normalized.push('\\');
+                }
+                normalized.push_str("..");
+            }
+        }
+    }
+
+    normalized
 }
 
 fn output_contains_module_base_under(paths: &[String], root: &Path) -> bool {
     let root = normalize_path_for_compare(root);
     paths
         .iter()
-        .map(|path| path.replace('/', "\\").to_ascii_lowercase())
+        .map(|path| normalize_path_for_compare(Path::new(path)))
         .any(|path| path.starts_with(&root))
 }
 
