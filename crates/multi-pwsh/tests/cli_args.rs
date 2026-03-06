@@ -1,4 +1,4 @@
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use serde_json::Value;
@@ -186,34 +186,18 @@ fn json_strings(value: &Value, key: &str) -> Vec<String> {
 }
 
 fn normalize_path_for_compare(path: &Path) -> String {
-    let mut normalized = String::new();
+    normalize_path_text(&path.to_string_lossy())
+}
 
-    for component in path.components() {
-        match component {
-            Component::Prefix(prefix) => {
-                normalized.push_str(
-                    &prefix
-                        .as_os_str()
-                        .to_string_lossy()
-                        .replace('/', "\\")
-                        .to_ascii_lowercase(),
-                );
-            }
-            Component::RootDir => normalized.push('\\'),
-            Component::Normal(part) => {
-                if !normalized.is_empty() && !normalized.ends_with('\\') {
-                    normalized.push('\\');
-                }
-                normalized.push_str(&part.to_string_lossy().to_ascii_lowercase());
-            }
-            Component::CurDir => {}
-            Component::ParentDir => {
-                if !normalized.is_empty() && !normalized.ends_with('\\') {
-                    normalized.push('\\');
-                }
-                normalized.push_str("..");
-            }
-        }
+fn normalize_path_text(path: &str) -> String {
+    let mut normalized = path.replace('/', "\\").to_ascii_lowercase();
+
+    if let Some(stripped) = normalized.strip_prefix("\\\\?\\unc\\") {
+        normalized = format!("\\\\{}", stripped);
+    } else if let Some(stripped) = normalized.strip_prefix("\\\\?\\") {
+        normalized = stripped.to_string();
+    } else if let Some(stripped) = normalized.strip_prefix("\\\\.\\") {
+        normalized = stripped.to_string();
     }
 
     normalized
