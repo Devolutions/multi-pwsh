@@ -20,12 +20,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Resolve multi-pwsh paths
-        shell: bash
-        run: |
-          echo "MULTI_PWSH_HOME=${RUNNER_TEMP}/multi-pwsh-home" >> "$GITHUB_ENV"
-          echo "MULTI_PWSH_CACHE_DIR=${RUNNER_TEMP}/multi-pwsh-cache" >> "$GITHUB_ENV"
-
       - name: Install multi-pwsh bootstrap
         run: bash ./tools/install-multi-pwsh.sh
 
@@ -89,20 +83,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Resolve multi-pwsh paths (Windows)
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          "MULTI_PWSH_HOME=$env:RUNNER_TEMP\multi-pwsh-home" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "MULTI_PWSH_CACHE_DIR=$env:RUNNER_TEMP\multi-pwsh-cache" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-      - name: Resolve multi-pwsh paths (Unix)
-        if: matrix.os != 'windows-latest'
-        shell: bash
-        run: |
-          echo "MULTI_PWSH_HOME=${RUNNER_TEMP}/multi-pwsh-home" >> "$GITHUB_ENV"
-          echo "MULTI_PWSH_CACHE_DIR=${RUNNER_TEMP}/multi-pwsh-cache" >> "$GITHUB_ENV"
 
       - name: Install multi-pwsh bootstrap (Windows)
         if: matrix.os == 'windows-latest'
