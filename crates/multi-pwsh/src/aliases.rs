@@ -274,14 +274,7 @@ fn create_or_update_windows_host_shim(layout: &InstallLayout, alias_command: &st
         fs::remove_file(&alias_exe_path)?;
     }
 
-    fs::hard_link(&source_exe, &alias_exe_path).map_err(|error| {
-        MultiPwshError::AliasCreation(format!(
-            "failed to create windows host shim hard link '{}' from '{}': {}",
-            alias_exe_path.display(),
-            source_exe.display(),
-            error
-        ))
-    })?;
+    create_host_shim_link_or_copy(&source_exe, &alias_exe_path, true)?;
 
     Ok(true)
 }
@@ -310,14 +303,7 @@ fn create_or_update_posix_host_shim(layout: &InstallLayout, alias_command: &str)
         fs::remove_file(&alias_path)?;
     }
 
-    fs::hard_link(&source_exe, &alias_path).map_err(|error| {
-        MultiPwshError::AliasCreation(format!(
-            "failed to create host shim hard link '{}' from '{}': {}",
-            alias_path.display(),
-            source_exe.display(),
-            error
-        ))
-    })?;
+    create_host_shim_link_or_copy(&source_exe, &alias_path, false)?;
 
     Ok(true)
 }
@@ -366,6 +352,24 @@ fn strip_drive_prefix(path: &str) -> String {
     }
 
     path.to_string()
+}
+
+fn create_host_shim_link_or_copy(source_exe: &Path, alias_path: &Path, windows: bool) -> Result<()> {
+    if let Err(link_error) = fs::hard_link(source_exe, alias_path) {
+        fs::copy(source_exe, alias_path).map_err(|copy_error| {
+            let kind = if windows { "windows host shim" } else { "host shim" };
+            MultiPwshError::AliasCreation(format!(
+                "failed to create {} '{}' from '{}' via hard link ({}) or copy ({} )",
+                kind,
+                alias_path.display(),
+                source_exe.display(),
+                link_error,
+                copy_error
+            ))
+        })?;
+    }
+
+    Ok(())
 }
 
 fn resolve_host_shim_source(layout: &InstallLayout) -> Result<PathBuf> {

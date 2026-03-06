@@ -414,9 +414,10 @@ fn run_install(selector_input: &str, arch: Option<HostArch>, include_prerelease:
     for release in releases {
         let executable_path = ensure_installed(&layout, release_client.http_client(), os, &release)?;
         let patch_alias = create_or_update_patch_alias(&layout, os, &release.version, &executable_path)?;
+        let version_path = executable_path.parent().unwrap_or_else(|| Path::new(""));
 
         println!("Installed PowerShell {}", release.version);
-        println!("Version path: {}", layout.version_dir(&release.version).display());
+        println!("Version path: {}", version_path.display());
         println!("Updated patch alias: {}", patch_alias.display());
 
         let line = release.version_line();
@@ -477,6 +478,7 @@ fn run_update(line_input: &str, arch: Option<HostArch>, include_prerelease: bool
     let release = release_client.resolve_latest_in_line(line, os, arch, include_prerelease)?;
     let executable_path = ensure_installed(&layout, release_client.http_client(), os, &release)?;
     let patch_alias_path = create_or_update_patch_alias(&layout, os, &release.version, &executable_path)?;
+    let version_path = executable_path.parent().unwrap_or_else(|| Path::new(""));
 
     let alias_path = sync_minor_alias(&layout, os, line)?;
     let major_alias_path = latest_installed_in_major(&layout, release.version.major)?
@@ -487,7 +489,7 @@ fn run_update(line_input: &str, arch: Option<HostArch>, include_prerelease: bool
         .transpose()?;
 
     println!("Updated line {} to {}", line, release.version);
-    println!("Version path: {}", layout.version_dir(&release.version).display());
+    println!("Version path: {}", version_path.display());
     println!("Updated patch alias: {}", patch_alias_path.display());
     if let Some(path) = alias_path {
         println!("Updated alias: {}", path.display());
@@ -565,9 +567,7 @@ fn run_uninstall(version_input: &str, force: bool) -> Result<()> {
     let layout = InstallLayout::new(os)?;
     layout.ensure_base_dirs()?;
 
-    let version_dir = layout.version_dir(&version);
-    if version_dir.exists() {
-        fs::remove_dir_all(&version_dir)?;
+    if layout.remove_version_dirs(&version)? {
         println!("Removed PowerShell {}", version);
     } else if force {
         println!(
@@ -674,8 +674,10 @@ fn run_list(option: ListOption) -> Result<()> {
             let aliases = aliases::read_alias_metadata(&layout)?;
             let pins = read_minor_pins(&layout)?;
 
-            println!("Install root: {}", layout.root().display());
+            println!("Home: {}", layout.home().display());
             println!("Alias bin: {}", layout.bin_dir().display());
+            println!("Versions dir: {}", layout.versions_dir().display());
+            println!("Cache dir: {}", layout.cache_dir().display());
             println!();
 
             if versions.is_empty() {
@@ -982,6 +984,14 @@ mod tests {
 
         let selector = detect_implicit_host_selector(&bin_dir, &bin_dir.join("pwsh-7.4"));
         assert_eq!(selector, Some("pwsh-7.4".to_string()));
+    }
+
+    #[test]
+    fn detect_implicit_host_selector_accepts_alias_in_overridden_bin_dir() {
+        let bin_dir = PathBuf::from("D:/tools/multi-pwsh/bin");
+
+        let selector = detect_implicit_host_selector(&bin_dir, &bin_dir.join("pwsh-7.5.exe"));
+        assert_eq!(selector, Some("pwsh-7.5".to_string()));
     }
 
     #[test]

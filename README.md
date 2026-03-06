@@ -104,26 +104,30 @@ Native host mode:
 - `multi-pwsh host <selector> ...` runs PowerShell through native hosting (`pwsh-host` crate) instead of launching a `pwsh` subprocess.
 - `<selector>` supports `7`, `7.4`, `7.4.13`, or alias-form selectors such as `pwsh-7.4`.
 - Alias lifecycle now maintains native host shims as hard links to `multi-pwsh` automatically during install/update/doctor alias repair.
-- On Windows, host shims are `pwsh-*.exe` files alongside `.cmd` wrappers in `~/.pwsh/bin`.
+- On Windows, host shims are `pwsh-*.exe` files alongside `.cmd` wrappers in `MULTI_PWSH_BIN_DIR` (default: `~/.pwsh/bin`).
 - On Linux/macOS, alias command paths (`pwsh-*`) are hard links to `multi-pwsh`.
 - `multi-pwsh doctor --repair-aliases` performs a shim health check and re-links broken hard links automatically.
-- You can still manually copy/rename `multi-pwsh.exe` under `~/.pwsh/bin` to an alias-like name (for example `pwsh-7.4.exe`); it automatically enters host mode and resolves the target installation from that alias name.
+- You can still manually copy/rename `multi-pwsh.exe` under `MULTI_PWSH_BIN_DIR` (default: `~/.pwsh/bin`) to an alias-like name (for example `pwsh-7.4.exe`); it automatically enters host mode and resolves the target installation from that alias name.
 - `-NamedPipeCommand <pipeName>` is supported in host mode (Windows only), matching `pwsh-host` behavior.
 
-Download cache behavior can be controlled with environment variables:
+Managed paths can be controlled with environment variables:
 
-- `MULTI_PWSH_CACHE_DIR`: override archive cache directory (default: `~/.pwsh/cache`).
+- `MULTI_PWSH_HOME`: override the multi-pwsh home directory (default: `~/.pwsh`). Extracted PowerShell versions are stored under `MULTI_PWSH_HOME/multi`, and alias metadata is stored in `MULTI_PWSH_HOME/aliases.json`.
+- `MULTI_PWSH_BIN_DIR`: override the shim and launcher directory (default: `MULTI_PWSH_HOME/bin`).
+- `MULTI_PWSH_CACHE_DIR`: override archive cache directory (default: `MULTI_PWSH_HOME/cache`).
 - `MULTI_PWSH_CACHE_KEEP`: keep downloaded archives after extraction when set to a truthy value (`1`, `true`, `yes`, or `on`).
 
 CI cache example:
 
 ```powershell
-$env:MULTI_PWSH_CACHE_DIR = "$(Join-Path $HOME '.pwsh\cache')"
+$env:MULTI_PWSH_HOME = "$(Join-Path $HOME '.pwsh')"
+$env:MULTI_PWSH_BIN_DIR = "$(Join-Path $env:MULTI_PWSH_HOME 'bin')"
+$env:MULTI_PWSH_CACHE_DIR = "$(Join-Path $env:MULTI_PWSH_HOME 'cache')"
 $env:MULTI_PWSH_CACHE_KEEP = "1"
 multi-pwsh install 7.4.x
 ```
 
-When installed via bootstrap scripts, `~/.pwsh/bin` is added to PATH automatically if needed.
+When installed via bootstrap scripts, `MULTI_PWSH_BIN_DIR` (default: `~/.pwsh/bin`) is added to PATH automatically if needed.
 
 ## pwsh-host
 

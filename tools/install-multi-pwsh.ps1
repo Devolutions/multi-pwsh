@@ -51,6 +51,22 @@ function Test-PathContainsEntry {
     return $false
 }
 
+function Get-MultiPwshHome {
+    if (-not [string]::IsNullOrWhiteSpace($env:MULTI_PWSH_HOME)) {
+        return $env:MULTI_PWSH_HOME
+    }
+
+    return (Join-Path $HOME '.pwsh')
+}
+
+function Get-MultiPwshBinDir {
+    if (-not [string]::IsNullOrWhiteSpace($env:MULTI_PWSH_BIN_DIR)) {
+        return $env:MULTI_PWSH_BIN_DIR
+    }
+
+    return (Join-Path (Get-MultiPwshHome) 'bin')
+}
+
 $arch = Get-ReleaseArch
 $assetName = "multi-pwsh-windows-$arch.zip"
 
@@ -68,8 +84,8 @@ else {
 }
 
 $downloadUrl = "https://github.com/$Owner/$Repository/releases/$releasePath/$assetName"
-$installRoot = Join-Path $HOME '.pwsh'
-$binDir = Join-Path $installRoot 'bin'
+$installHome = Get-MultiPwshHome
+$binDir = Get-MultiPwshBinDir
 $targetExe = Join-Path $binDir 'multi-pwsh.exe'
 
 $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("multi-pwsh-install-" + [System.Guid]::NewGuid().ToString('N'))

@@ -24,7 +24,7 @@ pub fn ensure_installed(
         return Ok(executable);
     }
 
-    let install_dir = layout.version_dir(&release.version);
+    let install_dir = layout.version_install_dir(&release.version);
     if install_dir.exists() {
         fs::remove_dir_all(&install_dir)?;
     }
@@ -187,28 +187,55 @@ fn ensure_executable_bit(_executable: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn with_cache_keep<T>(value: Option<&str>, action: impl FnOnce() -> T) -> T {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let previous = std::env::var_os("MULTI_PWSH_CACHE_KEEP");
+
+        match value {
+            Some(value) => unsafe { std::env::set_var("MULTI_PWSH_CACHE_KEEP", value) },
+            None => unsafe { std::env::remove_var("MULTI_PWSH_CACHE_KEEP") },
+        }
+
+        let result = action();
+
+        match previous {
+            Some(value) => unsafe { std::env::set_var("MULTI_PWSH_CACHE_KEEP", value) },
+            None => unsafe { std::env::remove_var("MULTI_PWSH_CACHE_KEEP") },
+        }
+
+        result
+    }
 
     #[test]
     fn cache_keep_defaults_to_false() {
-        unsafe { std::env::remove_var("MULTI_PWSH_CACHE_KEEP") };
-        assert!(!cache_keep_archives());
+        with_cache_keep(None, || {
+            assert!(!cache_keep_archives());
+        });
     }
 
     #[test]
     fn cache_keep_parses_truthy_values() {
-        unsafe { std::env::set_var("MULTI_PWSH_CACHE_KEEP", "true") };
-        assert!(cache_keep_archives());
+        with_cache_keep(Some("true"), || {
+            assert!(cache_keep_archives());
+        });
 
-        unsafe { std::env::set_var("MULTI_PWSH_CACHE_KEEP", "1") };
-        assert!(cache_keep_archives());
+        with_cache_keep(Some("1"), || {
+            assert!(cache_keep_archives());
+        });
 
-        unsafe { std::env::set_var("MULTI_PWSH_CACHE_KEEP", "on") };
-        assert!(cache_keep_archives());
+        with_cache_keep(Some("on"), || {
+            assert!(cache_keep_archives());
+        });
     }
 
     #[test]
     fn cache_keep_parses_falsey_values() {
-        unsafe { std::env::set_var("MULTI_PWSH_CACHE_KEEP", "false") };
-        assert!(!cache_keep_archives());
+        with_cache_keep(Some("false"), || {
+            assert!(!cache_keep_archives());
+        });
     }
 }

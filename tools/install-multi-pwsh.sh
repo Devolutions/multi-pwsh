@@ -5,8 +5,8 @@ repo_owner="Devolutions"
 repo_name="pwsh-host-rs"
 
 version="${1:-latest}"
-install_root="${HOME}/.pwsh"
-bin_dir="${install_root}/bin"
+install_home="${MULTI_PWSH_HOME:-${HOME}/.pwsh}"
+bin_dir="${MULTI_PWSH_BIN_DIR:-${install_home}/bin}"
 
 if [[ "${version}" == "latest" ]]; then
   release_path="latest/download"
@@ -106,14 +106,19 @@ if [[ -z "${profile_file}" ]]; then
   profile_file="${profile_candidates[0]}"
 fi
 
+escaped_bin_dir="${bin_dir//\\/\\\\}"
+escaped_bin_dir="${escaped_bin_dir//\"/\\\"}"
+escaped_bin_dir="${escaped_bin_dir//\$/\\$}"
+profile_line="export PATH=\"${escaped_bin_dir}:\$PATH\""
+
 touch "${profile_file}"
-if grep -Fq '.pwsh/bin' "${profile_file}"; then
+if grep -Fq "${profile_line}" "${profile_file}"; then
   path_status="PATH already contains ${bin_dir} in ${profile_file}"
 else
   {
     echo ""
     echo "# Added by multi-pwsh installer"
-    echo 'export PATH="$HOME/.pwsh/bin:$PATH"'
+    echo "${profile_line}"
   } >>"${profile_file}"
   path_status="Added ${bin_dir} to PATH in ${profile_file}"
 fi

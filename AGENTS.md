@@ -70,7 +70,7 @@ dotnet list dotnet/Bindings.csproj package --vulnerable --include-transitive
 
 - Tests and runtime behavior expect `pwsh` to be resolvable from `PATH`.
 - CI installs PowerShell `stable`/`lts` (7.4.x) and that matches `Discover-Bindings.ps1` requirements.
-- If your default `pwsh` is not 7.4.x, set `PwshExePath` before verification commands, for example:
+- If your default `pwsh` is not 7.4.x, set `PwshExePath` before verification commands. With the default multi-pwsh layout, for example:
 
 ```powershell
 $env:PwshExePath = "$HOME/.pwsh/bin/pwsh-7.4"
