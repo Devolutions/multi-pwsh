@@ -35,7 +35,7 @@ mod pwsh {
         }
 
         assert_eq!(pwsh_cmds.len(), 7);
-        assert_eq!(pwsh_cmds.get(0), Some(&"Compare-Object"));
+        assert_eq!(pwsh_cmds.first(), Some(&"Compare-Object"));
         assert_eq!(pwsh_cmds.get(1), Some(&"Group-Object"));
         assert_eq!(pwsh_cmds.get(2), Some(&"Measure-Object"));
 
@@ -112,6 +112,7 @@ mod pwsh {
         surface_path.push("..");
         surface_path.push("..");
         surface_path.push("dotnet");
+        surface_path.push("bindings");
         surface_path.push("obj");
         surface_path.push("powershell.ps74.surface.json");
 
@@ -191,9 +192,9 @@ mod pwsh {
 
         let objs: Vec<CliObject> = parse_cli_xml(obj_xml);
 
-        let obj = objs.get(0).unwrap();
+        let obj = objs.first().unwrap();
 
-        let string_prop = obj.values.get(0).unwrap();
+        let string_prop = obj.values.first().unwrap();
         assert!(string_prop.is_string());
         assert_eq!(string_prop.as_str(), Some("Purée"));
 
@@ -325,9 +326,9 @@ mod pwsh {
 
         let objs: Vec<CliObject> = parse_cli_xml(vm_xml);
 
-        let vm_obj = objs.get(0).unwrap();
+        let vm_obj = objs.first().unwrap();
 
-        let vmid_prop = vm_obj.values.get(0).unwrap();
+        let vmid_prop = vm_obj.values.first().unwrap();
         assert!(vmid_prop.is_guid());
         assert_eq!(vmid_prop.get_name(), Some("VMId"));
         assert_eq!(
@@ -489,18 +490,18 @@ mod pwsh {
         let objs: Vec<CliObject> = parse_cli_xml(xml);
         assert_eq!(objs.len(), 2);
 
-        let first = objs.get(0).unwrap();
+        let first = objs.first().unwrap();
         assert_eq!(first.type_names.len(), 2);
 
         let second = objs.get(1).unwrap();
         assert_eq!(second.type_names, first.type_names);
 
-        let copy = second.values.get(0).unwrap();
+        let copy = second.values.first().unwrap();
         assert!(copy.is_object());
         let copy_obj = copy.as_object().unwrap();
         assert_eq!(copy_obj.name.as_deref(), Some("Copy"));
 
-        let msg = copy_obj.values.get(0).unwrap();
+        let msg = copy_obj.values.first().unwrap();
         assert!(msg.is_string());
         assert_eq!(msg.get_name(), Some("Message"));
         assert_eq!(msg.as_str(), Some("Line1\nLine2"));
@@ -510,7 +511,7 @@ mod pwsh {
         let items_obj = items.as_object().unwrap();
         assert_eq!(items_obj.name.as_deref(), Some("Items"));
         assert_eq!(items_obj.values.len(), 2);
-        assert_eq!(items_obj.values.get(0).unwrap().as_str(), Some("one"));
+        assert_eq!(items_obj.values.first().unwrap().as_str(), Some("one"));
         assert_eq!(items_obj.values.get(1).unwrap().as_str(), Some("two"));
 
         let map = second.values.get(2).unwrap();
@@ -518,8 +519,8 @@ mod pwsh {
         let map_obj = map.as_object().unwrap();
         assert_eq!(map_obj.name.as_deref(), Some("Map"));
         assert_eq!(map_obj.values.len(), 2);
-        assert_eq!(map_obj.values.get(0).unwrap().get_name(), Some("Key"));
-        assert_eq!(map_obj.values.get(0).unwrap().as_str(), Some("Order_x0020_"));
+        assert_eq!(map_obj.values.first().unwrap().get_name(), Some("Key"));
+        assert_eq!(map_obj.values.first().unwrap().as_str(), Some("Order_x0020_"));
         assert_eq!(map_obj.values.get(1).unwrap().get_name(), Some("Value"));
         assert_eq!(map_obj.values.get(1).unwrap().as_i32(), Some(7));
     }

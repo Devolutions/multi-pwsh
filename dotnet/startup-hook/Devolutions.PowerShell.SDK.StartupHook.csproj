@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="..\Managed.Common.props" />
+
+  <PropertyGroup>
+    <AssemblyName>Devolutions.PowerShell.SDK.StartupHook</AssemblyName>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+</Project>

@@ -11,7 +11,7 @@ This file is guidance for AI/code agents working in this repository.
 ## Baseline
 
 - .NET SDK pinned in `global.json` (currently `8.0.400` with `latestPatch` roll-forward).
-- .NET target framework is `net8.0` in `dotnet/Bindings.csproj`.
+- .NET target framework is `net8.0` in `dotnet/bindings/Devolutions.PowerShell.SDK.Bindings.csproj`.
 - Rust crate uses edition 2018.
 
 ## PR preparation policy (mandatory)
@@ -42,20 +42,20 @@ Run these after meaningful code changes, and before PR if those changes are part
 ```powershell
 cargo build --all-targets
 cargo test --all-targets
-dotnet build dotnet/Bindings.csproj
-dotnet test dotnet/Bindings.csproj --no-build
+dotnet build dotnet/bindings/Devolutions.PowerShell.SDK.Bindings.csproj
+dotnet test dotnet/bindings/Devolutions.PowerShell.SDK.Bindings.csproj --no-build
 ```
 
-If dependency changes are made in `dotnet/Bindings.csproj`, also run:
+If dependency changes are made in `dotnet/bindings/Devolutions.PowerShell.SDK.Bindings.csproj`, also run:
 
 ```powershell
-dotnet list dotnet/Bindings.csproj package --vulnerable --include-transitive
+dotnet list dotnet/bindings/Devolutions.PowerShell.SDK.Bindings.csproj package --vulnerable --include-transitive
 ```
 
 ## Project map
 
 - `crates/pwsh-host/src/bindings.rs`: Rust FFI surface over .NET unmanaged entry points.
-- `dotnet/Bindings.cs`: Unmanaged-callable C# methods around `System.Management.Automation.PowerShell`.
+- `dotnet/bindings/Bindings.cs`: Unmanaged-callable C# methods around `System.Management.Automation.PowerShell`.
 - `crates/pwsh-host/src/cli_xml.rs`: CLIXML parsing helpers.
 - `crates/pwsh-host/src/tests.rs`: behavior and integration tests used as usage references.
 

@@ -10,7 +10,7 @@ pub enum MultiPwshError {
     Io(#[from] io::Error),
 
     #[error("http error: {0}")]
-    Http(#[from] ureq::Error),
+    Http(Box<ureq::Error>),
 
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
@@ -46,5 +46,11 @@ pub enum MultiPwshError {
 impl From<zip::result::ZipError> for MultiPwshError {
     fn from(value: zip::result::ZipError) -> Self {
         MultiPwshError::Archive(value.to_string())
+    }
+}
+
+impl From<ureq::Error> for MultiPwshError {
+    fn from(value: ureq::Error) -> Self {
+        MultiPwshError::Http(Box::new(value))
     }
 }

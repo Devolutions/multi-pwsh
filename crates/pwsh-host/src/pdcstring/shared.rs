@@ -9,6 +9,7 @@ use super::{NulError, PdCStrInner, PdCStringInner, PdUChar};
 /// A platform-dependent c-like string type for interacting with the hostfxr API.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
 #[repr(transparent)]
+#[derive(Default)]
 pub struct PdCString(pub PdCStringInner);
 
 impl PdCString {
@@ -55,12 +56,6 @@ impl Deref for PdCString {
     type Target = PdCStr;
     fn deref(&self) -> &Self::Target {
         self.borrow()
-    }
-}
-
-impl Default for PdCString {
-    fn default() -> Self {
-        Self(Default::default())
     }
 }
 
