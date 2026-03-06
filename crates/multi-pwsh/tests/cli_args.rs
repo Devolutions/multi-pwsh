@@ -186,7 +186,10 @@ fn json_strings(value: &Value, key: &str) -> Vec<String> {
 }
 
 fn normalize_path_for_compare(path: &Path) -> String {
-    normalize_path_text(&path.to_string_lossy())
+    match std::fs::canonicalize(path) {
+        Ok(canonical_path) => normalize_path_text(&canonical_path.to_string_lossy()),
+        Err(_) => normalize_path_text(&path.to_string_lossy()),
+    }
 }
 
 fn normalize_path_text(path: &str) -> String {
