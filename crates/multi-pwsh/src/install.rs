@@ -24,7 +24,7 @@ pub fn ensure_installed(
         return Ok(executable);
     }
 
-    let install_dir = layout.version_dir(&release.version);
+    let install_dir = layout.version_install_dir(&release.version);
     if install_dir.exists() {
         fs::remove_dir_all(&install_dir)?;
     }

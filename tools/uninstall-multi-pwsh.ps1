@@ -23,8 +23,24 @@ function Remove-PathEntry {
     return ($filtered -join ';')
 }
 
-$installRoot = Join-Path $HOME '.pwsh'
-$binDir = Join-Path $installRoot 'bin'
+function Get-MultiPwshHome {
+    if (-not [string]::IsNullOrWhiteSpace($env:MULTI_PWSH_HOME)) {
+        return $env:MULTI_PWSH_HOME
+    }
+
+    return (Join-Path $HOME '.pwsh')
+}
+
+function Get-MultiPwshBinDir {
+    if (-not [string]::IsNullOrWhiteSpace($env:MULTI_PWSH_BIN_DIR)) {
+        return $env:MULTI_PWSH_BIN_DIR
+    }
+
+    return (Join-Path (Get-MultiPwshHome) 'bin')
+}
+
+$installHome = Get-MultiPwshHome
+$binDir = Get-MultiPwshBinDir
 $targetExe = Join-Path $binDir 'multi-pwsh.exe'
 
 if (Test-Path -Path $targetExe -PathType Leaf) {

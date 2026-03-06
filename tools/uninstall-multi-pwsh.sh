@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-install_root="${HOME}/.pwsh"
-bin_dir="${install_root}/bin"
+install_home="${MULTI_PWSH_HOME:-${HOME}/.pwsh}"
+bin_dir="${MULTI_PWSH_BIN_DIR:-${install_home}/bin}"
 binary_path="${bin_dir}/multi-pwsh"
 
 remove_profile_entries() {
@@ -13,8 +13,9 @@ remove_profile_entries() {
   local temp_file
   temp_file="$(mktemp)"
 
-  awk '
+  awk -v bin_dir="${bin_dir}" '
     $0 == "# Added by multi-pwsh installer" { changed = 1; next }
+    $0 == "export PATH=\"" bin_dir ":$PATH\"" { changed = 1; next }
     $0 == "export PATH=\"$HOME/.pwsh/bin:$PATH\"" { changed = 1; next }
     { print }
   ' "${profile_file}" > "${temp_file}"

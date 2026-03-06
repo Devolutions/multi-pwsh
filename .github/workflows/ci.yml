@@ -15,6 +15,9 @@ jobs:
   lint:
     name: Lint (Ubuntu)
     runs-on: ubuntu-latest
+    env:
+      MULTI_PWSH_HOME: ${{ runner.temp }}/multi-pwsh-home
+      MULTI_PWSH_CACHE_DIR: ${{ runner.temp }}/multi-pwsh-cache
 
     steps:
       - name: Checkout
@@ -24,7 +27,11 @@ jobs:
         run: bash ./tools/install-multi-pwsh.sh
 
       - name: Add multi-pwsh bin to PATH
-        run: echo "$HOME/.pwsh/bin" >> "$GITHUB_PATH"
+        shell: bash
+        run: |
+          multi_pwsh_home="${MULTI_PWSH_HOME:-$HOME/.pwsh}"
+          multi_pwsh_bin="${MULTI_PWSH_BIN_DIR:-${multi_pwsh_home}/bin}"
+          echo "$multi_pwsh_bin" >> "$GITHUB_PATH"
 
       - name: Cache multi-pwsh downloads
         uses: actions/cache@v4
@@ -38,8 +45,6 @@ jobs:
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          MULTI_PWSH_CACHE_DIR: ${{ runner.temp }}/multi-pwsh-cache
-          MULTI_PWSH_CACHE_KEEP_KEEP: '1'
           MULTI_PWSH_CACHE_KEEP: '1'
         run: |
           multi-pwsh install 7.4
@@ -70,6 +75,9 @@ jobs:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     needs: lint
+    env:
+      MULTI_PWSH_HOME: ${{ runner.temp }}/multi-pwsh-home
+      MULTI_PWSH_CACHE_DIR: ${{ runner.temp }}/multi-pwsh-cache
     strategy:
       fail-fast: false
       matrix:
@@ -95,11 +103,17 @@ jobs:
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
-          "$HOME\.pwsh\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          $multiPwshHome = if ($env:MULTI_PWSH_HOME) { $env:MULTI_PWSH_HOME } else { Join-Path $HOME '.pwsh' }
+          $multiPwshBin = if ($env:MULTI_PWSH_BIN_DIR) { $env:MULTI_PWSH_BIN_DIR } else { Join-Path $multiPwshHome 'bin' }
+          $multiPwshBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Add multi-pwsh bin to PATH (Unix)
         if: matrix.os != 'windows-latest'
-        run: echo "$HOME/.pwsh/bin" >> "$GITHUB_PATH"
+        shell: bash
+        run: |
+          multi_pwsh_home="${MULTI_PWSH_HOME:-$HOME/.pwsh}"
+          multi_pwsh_bin="${MULTI_PWSH_BIN_DIR:-${multi_pwsh_home}/bin}"
+          echo "$multi_pwsh_bin" >> "$GITHUB_PATH"
 
       - name: Cache multi-pwsh downloads
         uses: actions/cache@v4
@@ -113,8 +127,6 @@ jobs:
         shell: pwsh
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          MULTI_PWSH_CACHE_DIR: ${{ runner.temp }}/multi-pwsh-cache
-          MULTI_PWSH_CACHE_KEEP_KEEP: '1'
           MULTI_PWSH_CACHE_KEEP: '1'
         run: |
           multi-pwsh install 7.4
