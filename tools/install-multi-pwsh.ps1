@@ -7,7 +7,7 @@ param(
     [string]$Owner = 'Devolutions',
 
     [Parameter(Mandatory = $false)]
-    [string]$Repository = 'pwsh-host-rs'
+    [string]$Repository = 'multi-pwsh'
 )
 
 $ErrorActionPreference = 'Stop'

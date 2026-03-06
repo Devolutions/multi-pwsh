@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo_owner="Devolutions"
-repo_name="pwsh-host-rs"
+repo_name="multi-pwsh"
 
 version="${1:-latest}"
 install_home="${MULTI_PWSH_HOME:-${HOME}/.pwsh}"
