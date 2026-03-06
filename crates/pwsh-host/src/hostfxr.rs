@@ -30,6 +30,8 @@ pub enum HostfxrDelegateType {
     ComUnregister,
     LoadAssemblyAndGetFunctionPointer,
     GetFunctionPointer,
+    LoadAssembly,
+    LoadAssemblyBytes,
 }
 
 #[repr(C)]
@@ -96,6 +98,15 @@ pub type GetFunctionPointerFn = unsafe extern "system" fn(
     load_context: *const (),
     reserved: *const (),
     delegate: *mut libc::c_void,
+) -> i32;
+
+pub type LoadAssemblyBytesFn = unsafe extern "system" fn(
+    assembly_bytes: *const libc::c_void,
+    assembly_bytes_len: usize,
+    symbols_bytes: *const libc::c_void,
+    symbols_bytes_len: usize,
+    load_context: *const (),
+    reserved: *const (),
 ) -> i32;
 
 pub struct Hostfxr {

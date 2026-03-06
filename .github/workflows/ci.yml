@@ -154,6 +154,15 @@ jobs:
       - name: Run Rust tests
         run: cargo test --all-targets
 
+      - name: Run multi-pwsh venv integration tests
+        shell: pwsh
+        run: cargo test -p multi-pwsh --test cli_args venv
+
+      - name: Run pwsh-host startup-hook integration test
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: cargo test -p pwsh-host-cli --test startup_hook_provider_unify
+
       - name: Build .NET project
         shell: pwsh
         run: dotnet build dotnet/Bindings.csproj -p:PwshExePath="pwsh-7.4"
