@@ -28,6 +28,9 @@ use versions::{
     VersionSelector,
 };
 
+const POWERSHELL_UPDATECHECK_ENV_VAR: &str = "POWERSHELL_UPDATECHECK";
+const POWERSHELL_UPDATECHECK_OFF: &str = "Off";
+
 fn print_usage() {
     eprintln!(
         "Usage:\n  multi-pwsh install <version|major|major.minor|major.minor.x> [--arch <auto|x64|x86|arm64|arm32>] [--include-prerelease]\n  multi-pwsh update <major.minor> [--arch <auto|x64|x86|arm64|arm32>] [--include-prerelease]\n  multi-pwsh uninstall <version> [--force]\n  multi-pwsh list [--available] [--include-prerelease]\n  multi-pwsh alias set <major.minor> <version|latest>\n  multi-pwsh alias unset <major.minor>\n  multi-pwsh host <version|major|major.minor|pwsh-alias> [pwsh arguments...]\n  multi-pwsh doctor --repair-aliases"
@@ -125,6 +128,10 @@ fn preprocess_host_args(args: Vec<OsString>) -> Result<Vec<OsString>> {
         .map_err(|error| MultiPwshError::Host(format!("invalid host arguments: {}", error)))
 }
 
+fn disable_powershell_update_notifications() {
+    unsafe { env::set_var(POWERSHELL_UPDATECHECK_ENV_VAR, POWERSHELL_UPDATECHECK_OFF) };
+}
+
 fn run_host_mode(selector_input: &str, pwsh_args: Vec<OsString>) -> Result<i32> {
     let os = HostOs::detect()?;
     let layout = InstallLayout::new(os)?;
@@ -132,6 +139,7 @@ fn run_host_mode(selector_input: &str, pwsh_args: Vec<OsString>) -> Result<i32> 
 
     let (_version, executable) = resolve_host_executable(&layout, selector_input)?;
     let args = preprocess_host_args(pwsh_args)?;
+    disable_powershell_update_notifications();
 
     pwsh_host::run_pwsh_command_line_for_pwsh_exe(&executable, args).map_err(|error| {
         MultiPwshError::Host(format!(
@@ -899,6 +907,28 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn with_env_var<T>(key: &str, value: Option<&str>, action: impl FnOnce() -> T) -> T {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let previous = env::var_os(key);
+
+        match value {
+            Some(value) => unsafe { env::set_var(key, value) },
+            None => unsafe { env::remove_var(key) },
+        }
+
+        let result = action();
+
+        match previous {
+            Some(value) => unsafe { env::set_var(key, value) },
+            None => unsafe { env::remove_var(key) },
+        }
+
+        result
+    }
 
     #[test]
     fn parse_force_option_defaults_to_false() {
@@ -968,6 +998,14 @@ mod tests {
     fn parse_host_selector_supports_exact_version() {
         let selector = parse_host_selector("7.4.13").unwrap();
         assert_eq!(selector, HostSelector::Exact(Version::parse("7.4.13").unwrap()));
+    }
+
+    #[test]
+    fn disable_powershell_update_notifications_sets_off() {
+        with_env_var(POWERSHELL_UPDATECHECK_ENV_VAR, Some("LTS"), || {
+            disable_powershell_update_notifications();
+            assert_eq!(env::var(POWERSHELL_UPDATECHECK_ENV_VAR).unwrap(), POWERSHELL_UPDATECHECK_OFF);
+        });
     }
 
     #[test]
