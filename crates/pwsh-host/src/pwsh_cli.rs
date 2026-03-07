@@ -6,7 +6,7 @@ use crate::host_detect::pwsh_host_detect;
 use crate::hostfxr::load_hostfxr_from_pwsh_dir;
 use crate::pdcstr;
 use crate::pdcstring::PdCString;
-use crate::startup_hook::{PROVIDER_UNIFY_STARTUP_HOOK_ASSEMBLY_NAME, STARTUP_HOOK_DLL};
+use crate::startup_hook::{STARTUP_HOOK_ASSEMBLY_NAME, STARTUP_HOOK_DLL};
 
 const STARTUP_HOOKS_ENV_VAR: &str = "PWSH_HOST_STARTUP_HOOKS";
 const FORCE_MODULE_PATH_ENV_VAR: &str = "PWSH_STARTUP_HOOK_FORCE_PSMODULEPATH";
@@ -107,7 +107,7 @@ where
             context.set_runtime_property_value(pdcstr!("STARTUP_HOOKS"), &startup_hooks_pd)?;
         }
         StartupHooksTarget::EmbeddedAssemblyName => {
-            let startup_hooks_pd = PdCString::from_os_str(PROVIDER_UNIFY_STARTUP_HOOK_ASSEMBLY_NAME)?;
+            let startup_hooks_pd = PdCString::from_os_str(STARTUP_HOOK_ASSEMBLY_NAME)?;
             context.set_runtime_property_value(pdcstr!("STARTUP_HOOKS"), &startup_hooks_pd)?;
         }
     }

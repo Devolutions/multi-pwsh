@@ -36,10 +36,14 @@ fn main() {
     dotnet_dir.push("dotnet");
     let workspace_root = dotnet_dir.parent().unwrap();
 
-    let bindings_project = dotnet_dir.join("Bindings.csproj");
+    let bindings_project = dotnet_dir
+        .join("bindings")
+        .join("Devolutions.PowerShell.Bindings.csproj");
     let managed_common_props = dotnet_dir.join("Managed.Common.props");
-    let bindings_source = dotnet_dir.join("Bindings.cs");
-    let startup_hook_project = dotnet_dir.join("startup-hook").join("PwshModulePathStartupHook.csproj");
+    let bindings_source = dotnet_dir.join("bindings").join("Bindings.cs");
+    let startup_hook_project = dotnet_dir
+        .join("startup-hook")
+        .join("Devolutions.PowerShell.StartupHook.csproj");
     let startup_hook_source = dotnet_dir.join("startup-hook").join("StartupHook.cs");
 
     println!("cargo:rerun-if-changed={}", bindings_project.display());

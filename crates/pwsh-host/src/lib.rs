@@ -27,6 +27,4 @@ mod pdcstring;
 pub use bindings::PowerShell;
 pub use named_pipe_command::{preprocess_named_pipe_command_args, NamedPipeCommandError};
 pub use pwsh_cli::{run_pwsh_command_line, run_pwsh_command_line_for_pwsh_dir, run_pwsh_command_line_for_pwsh_exe};
-pub use startup_hook::{
-    PROVIDER_UNIFY_FORCE_MODULE_PATH_ENV_VAR, PROVIDER_UNIFY_STRATEGY, PROVIDER_UNIFY_STRATEGY_ENV_VAR,
-};
+pub use startup_hook::{MODULE_PATH_STRATEGY, STARTUP_HOOK_FORCE_MODULE_PATH_ENV_VAR, STARTUP_HOOK_STRATEGY_ENV_VAR};

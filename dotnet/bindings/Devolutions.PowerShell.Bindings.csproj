@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <Import Project="Managed.Common.props" />
+  <Import Project="..\Managed.Common.props" />
   <PropertyGroup>
+    <AssemblyName>Devolutions.PowerShell.Bindings</AssemblyName>
     <EnableDynamicLoading>true</EnableDynamicLoading>
     <UseRidGraph>true</UseRidGraph>
     <DiscoveredBindingsContractPath Condition="'$(DiscoveredBindingsContractPath)' == ''">$(MSBuildThisFileDirectory)obj\bindings.ps74.discovered.contract.json</DiscoveredBindingsContractPath>
@@ -11,17 +12,14 @@
     <PwshExePath Condition="'$(PwshExePath)' == ''">pwsh</PwshExePath>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Remove="startup-hook\**\*.cs" />
-  </ItemGroup>
-  <ItemGroup>
     <Compile Include="$(DiscoveredBindingsWrappersPath)" Visible="false" />
   </ItemGroup>
   <Target Name="DiscoverBindings" BeforeTargets="BeforeBuild">
     <Message Importance="High" Text="DiscoverBindings using $(PwshExePath)" />
-    <Exec Command="&quot;$(PwshExePath)&quot; -NoLogo -NoProfile -File &quot;$(MSBuildThisFileDirectory)..\scripts\Discover-Bindings.ps1&quot; -OutSurfacePath &quot;$(DiscoveredBindingsSurfacePath)&quot; -OutContractPath &quot;$(DiscoveredBindingsContractPath)&quot; -OutCSharpWrappersPath &quot;$(DiscoveredBindingsWrappersPath)&quot;" />
+    <Exec Command="&quot;$(PwshExePath)&quot; -NoLogo -NoProfile -File &quot;$(MSBuildThisFileDirectory)..\..\scripts\Discover-Bindings.ps1&quot; -OutSurfacePath &quot;$(DiscoveredBindingsSurfacePath)&quot; -OutContractPath &quot;$(DiscoveredBindingsContractPath)&quot; -OutCSharpWrappersPath &quot;$(DiscoveredBindingsWrappersPath)&quot; -BindingAssemblyName &quot;$(AssemblyName)&quot;" />
   </Target>
   <Target Name="GenerateBindings" BeforeTargets="BeforeBuild" DependsOnTargets="DiscoverBindings">
     <Message Importance="High" Text="GenerateBindings using $(PwshExePath) and contract $(BindingsContractPath)" />
-    <Exec Command="&quot;$(PwshExePath)&quot; -NoLogo -NoProfile -File &quot;$(MSBuildThisFileDirectory)..\scripts\Generate-Bindings.ps1&quot; -ContractPath &quot;$(BindingsContractPath)&quot; -CSharpOutputPath &quot;$(MSBuildThisFileDirectory)Bindings.Generated.cs&quot; -RustOutputPath &quot;$(MSBuildThisFileDirectory)..\crates\pwsh-host\src\bindings\bindings_generated.rs&quot;" />
+    <Exec Command="&quot;$(PwshExePath)&quot; -NoLogo -NoProfile -File &quot;$(MSBuildThisFileDirectory)..\..\scripts\Generate-Bindings.ps1&quot; -ContractPath &quot;$(BindingsContractPath)&quot; -CSharpOutputPath &quot;$(MSBuildThisFileDirectory)Bindings.Generated.cs&quot; -RustOutputPath &quot;$(MSBuildThisFileDirectory)..\..\crates\pwsh-host\src\bindings\bindings_generated.rs&quot;" />
   </Target>
 </Project>

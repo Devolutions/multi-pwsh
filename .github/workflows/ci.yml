@@ -161,12 +161,12 @@ jobs:
       - name: Run pwsh-host startup-hook integration test
         if: matrix.os == 'windows-latest'
         shell: pwsh
-        run: cargo test -p pwsh-host-cli --test startup_hook_provider_unify
+        run: cargo test -p pwsh-host-cli --test startup_hook_module_path
 
       - name: Build .NET project
         shell: pwsh
-        run: dotnet build dotnet/Bindings.csproj -p:PwshExePath="pwsh-7.4"
+        run: dotnet build dotnet/bindings/Devolutions.PowerShell.Bindings.csproj -p:PwshExePath="pwsh-7.4"
 
       - name: Run .NET tests
         shell: pwsh
-        run: dotnet test dotnet/Bindings.csproj --no-build -p:PwshExePath="pwsh-7.4"
+        run: dotnet test dotnet/bindings/Devolutions.PowerShell.Bindings.csproj --no-build -p:PwshExePath="pwsh-7.4"

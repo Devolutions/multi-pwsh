@@ -2,7 +2,7 @@
   <Import Project="..\Managed.Common.props" />
 
   <PropertyGroup>
-    <AssemblyName>PwshModulePathStartupHook</AssemblyName>
+    <AssemblyName>Devolutions.PowerShell.StartupHook</AssemblyName>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>

@@ -63,7 +63,7 @@ impl Drop for TempDirGuard {
     }
 }
 
-fn run_shim_with_provider_unify(forced_module_path: &Path) -> Output {
+fn run_shim_with_module_path_startup_hook(forced_module_path: &Path) -> Output {
     let shim = find_shim_binary();
     assert!(shim.exists(), "missing shim binary at {}", shim.display());
     let runtime_temp_dir = TempDirGuard::new("pwsh_host_runtime_temp");
@@ -92,14 +92,14 @@ fn run_shim_with_provider_unify(forced_module_path: &Path) -> Output {
         .env("PWSH_STARTUP_HOOK_FORCE_PSMODULEPATH", forced_module_path)
         .env_remove("PWSH_STARTUP_HOOK_STRATEGY")
         .output()
-        .expect("failed to run pwsh-host with provider-unify startup hook");
+        .expect("failed to run pwsh-host with module-path startup hook");
 
     let extracted_hook_path = runtime_temp_dir
         .path()
         .join("pwsh-host-rs")
         .join(env!("CARGO_PKG_VERSION"))
         .join("startup-hooks")
-        .join("PwshModulePathStartupHook.dll");
+        .join("Devolutions.PowerShell.StartupHook.dll");
     assert!(
         !extracted_hook_path.exists(),
         "startup hook should load from embedded bytes without extracting to {}",
@@ -110,9 +110,9 @@ fn run_shim_with_provider_unify(forced_module_path: &Path) -> Output {
 }
 
 #[test]
-fn provider_unify_is_the_default_startup_hook_behavior() {
-    let venv_dir = TempDirGuard::new("pwsh_host_provider_unify");
-    let output = run_shim_with_provider_unify(venv_dir.path());
+fn module_path_is_the_default_startup_hook_behavior() {
+    let venv_dir = TempDirGuard::new("pwsh_host_module_path");
+    let output = run_shim_with_module_path_startup_hook(venv_dir.path());
 
     assert_eq!(
         output.status.code(),

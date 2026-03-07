@@ -36,7 +36,7 @@ public static class StartupHook
             }
 
             if (!string.IsNullOrWhiteSpace(s_strategy)
-                && !string.Equals(s_strategy, "provider-unify", StringComparison.OrdinalIgnoreCase))
+                && !string.Equals(s_strategy, "module-path", StringComparison.OrdinalIgnoreCase))
             {
                 throw new NotSupportedException($"unsupported startup hook strategy '{s_strategy}'");
             }
@@ -44,10 +44,10 @@ public static class StartupHook
             Assembly sma = Assembly.Load("System.Management.Automation");
             Type moduleIntrinsics = sma.GetType("System.Management.Automation.ModuleIntrinsics", throwOnError: true)!;
 
-            ConfigureProviderUnifyOverride(sma, moduleIntrinsics);
+            ConfigureModulePathOverride(sma, moduleIntrinsics);
             Environment.SetEnvironmentVariable("PSModulePath", s_forcedModulePath);
             RuntimeHelpers.RunClassConstructor(moduleIntrinsics.TypeHandle);
-            WriteLog($"configured provider-unify override; rewritten PSModulePath={Environment.GetEnvironmentVariable("PSModulePath")}");
+            WriteLog($"configured module-path override; rewritten PSModulePath={Environment.GetEnvironmentVariable("PSModulePath")}");
 
             Environment.SetEnvironmentVariable("PSModulePath", s_forcedModulePath);
             WriteLog($"pre-seeded PSModulePath={Environment.GetEnvironmentVariable("PSModulePath")}");
@@ -93,19 +93,19 @@ public static class StartupHook
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private static string GetUnifiedModulePathReplacement()
+    private static string GetModulePathReplacement()
     {
         return s_forcedModulePath ?? string.Empty;
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private static string GetUnifiedConfigModulePathReplacement(object powerShellConfig, int scope)
+    private static string GetConfigModulePathReplacement(object powerShellConfig, int scope)
     {
         return s_forcedModulePath ?? string.Empty;
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private static System.Collections.Generic.IEnumerable<string> GetUnifiedEnumeratedModulePathReplacement(bool includeSystemModulePath, object context)
+    private static System.Collections.Generic.IEnumerable<string> GetEnumeratedModulePathReplacement(bool includeSystemModulePath, object context)
     {
         var yieldedPaths = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
         string? forcedPath = s_forcedModulePath;
@@ -128,7 +128,7 @@ public static class StartupHook
         }
     }
 
-    private static void ConfigureProviderUnifyOverride(Assembly sma, Type moduleIntrinsics)
+    private static void ConfigureModulePathOverride(Assembly sma, Type moduleIntrinsics)
     {
         MethodInfo getPersonalModulePath = moduleIntrinsics.GetMethod(
             "GetPersonalModulePath",
@@ -143,10 +143,10 @@ public static class StartupHook
             types: new[] { typeof(bool), sma.GetType("System.Management.Automation.ExecutionContext", throwOnError: true)! },
             modifiers: null)!;
         MethodInfo pathReplacement = typeof(StartupHook).GetMethod(
-            nameof(GetUnifiedModulePathReplacement),
+            nameof(GetModulePathReplacement),
             BindingFlags.NonPublic | BindingFlags.Static)!;
         MethodInfo enumeratedPathReplacement = typeof(StartupHook).GetMethod(
-            nameof(GetUnifiedEnumeratedModulePathReplacement),
+            nameof(GetEnumeratedModulePathReplacement),
             BindingFlags.NonPublic | BindingFlags.Static)!;
 
         Type configScope = sma.GetType("System.Management.Automation.Configuration.ConfigScope", throwOnError: true)!;
@@ -158,7 +158,7 @@ public static class StartupHook
             types: new[] { configScope },
             modifiers: null)!;
         MethodInfo configReplacement = typeof(StartupHook).GetMethod(
-            nameof(GetUnifiedConfigModulePathReplacement),
+            nameof(GetConfigModulePathReplacement),
             BindingFlags.NonPublic | BindingFlags.Static)!;
 
         PatchMethod(getPersonalModulePath, pathReplacement);
