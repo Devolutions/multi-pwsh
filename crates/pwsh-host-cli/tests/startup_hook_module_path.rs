@@ -63,6 +63,31 @@ impl Drop for TempDirGuard {
     }
 }
 
+fn write_test_module(forced_module_path: &Path) {
+    let module_root = forced_module_path.join("PwshHost.TestModule").join("1.2.3");
+    fs::create_dir_all(&module_root).expect("failed to create test module directory");
+
+    let manifest = r#"@{
+    ModuleVersion = '1.2.3'
+    GUID = '3d77d8db-7279-4d3b-aef5-b81b2a8a58e1'
+    Author = 'pwsh-host-rs'
+    Description = 'Synthetic module for startup-hook PSResourceGet coverage.'
+    FunctionsToExport = @()
+    CmdletsToExport = @()
+    VariablesToExport = @()
+    AliasesToExport = @()
+    PrivateData = @{
+        PSData = @{
+            Tags = @('test', 'pwsh-host')
+            ProjectUri = 'https://example.invalid/pwsh-host'
+        }
+    }
+}
+"#;
+
+    fs::write(module_root.join("PwshHost.TestModule.psd1"), manifest).expect("failed to write test module manifest");
+}
+
 fn run_shim_with_module_path_startup_hook(forced_module_path: &Path) -> Output {
     let shim = find_shim_binary();
     assert!(shim.exists(), "missing shim binary at {}", shim.display());
@@ -80,6 +105,9 @@ fn run_shim_with_module_path_startup_hook(forced_module_path: &Path) -> Output {
         "$reimported.ToString();",
         "$powerShellGet.SessionState.PSVariable.GetValue('MyDocumentsModulesPath');",
         "(($powerShellGet.SessionState.PSVariable.GetValue('PSGetPath')).CurrentUserModules);",
+        "$installedPsResource = Get-InstalledPSResource PwshHost.TestModule -ErrorAction SilentlyContinue | Select-Object -First 1;",
+        "([bool]$installedPsResource).ToString();",
+        "if ($installedPsResource) { $installedPsResource.InstalledLocation } else { '' };",
         "([bool]$env:DOTNET_STARTUP_HOOKS).ToString();",
         "([bool]$env:PWSH_STARTUP_HOOK_FORCE_PSMODULEPATH).ToString();"
     );
@@ -116,6 +144,7 @@ fn run_shim_with_module_path_startup_hook(forced_module_path: &Path) -> Output {
 #[test]
 fn module_path_is_the_default_startup_hook_behavior() {
     let venv_dir = TempDirGuard::new("pwsh_host_module_path");
+    write_test_module(venv_dir.path());
     let output = run_shim_with_module_path_startup_hook(venv_dir.path());
 
     assert_eq!(
@@ -128,7 +157,7 @@ fn module_path_is_the_default_startup_hook_behavior() {
 
     let stdout = normalize_output(&output.stdout);
     let lines: Vec<&str> = stdout.lines().collect();
-    assert_eq!(lines.len(), 8, "unexpected stdout:\n{}", stdout);
+    assert_eq!(lines.len(), 10, "unexpected stdout:\n{}", stdout);
     assert_eq!(lines[0], venv_dir.path().to_string_lossy());
     assert_eq!(lines[1], "True", "ConvertTo-Json should remain available");
     assert_eq!(lines[2], "True", "Microsoft.PowerShell.Utility should stay listable");
@@ -147,8 +176,17 @@ fn module_path_is_the_default_startup_hook_behavior() {
         "PowerShellGet PSGetPath should advertise the venv as the current-user module path"
     );
     assert_eq!(
-        lines[6], "False",
+        lines[6], "True",
+        "Get-InstalledPSResource should project a venv-local module"
+    );
+    assert_eq!(
+        lines[7],
+        venv_dir.path().to_string_lossy(),
+        "Get-InstalledPSResource should report the forced venv as the installed location"
+    );
+    assert_eq!(
+        lines[8], "False",
         "DOTNET_STARTUP_HOOKS should not leak into process env"
     );
-    assert_eq!(lines[7], "False", "forced module path should not leak into process env");
+    assert_eq!(lines[9], "False", "forced module path should not leak into process env");
 }

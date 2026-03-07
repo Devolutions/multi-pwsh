@@ -14,8 +14,11 @@ public static class StartupHook
     private const string StrategyProperty = "PWSH_STARTUP_HOOK_STRATEGY";
     private const string PowerShellGetPatchHelperName = "__PWSH_HOST_PATCH_POWERSHELLGET_VENV";
     private const string VenvInstalledModuleHelperName = "__PWSH_HOST_GET_VENV_INSTALLED_MODULE";
+    private const string VenvInstalledPSResourceHelperName = "__PWSH_HOST_GET_VENV_INSTALLED_PSRESOURCE";
     private const string InstallModuleWrapperName = "Install-Module";
     private const string GetInstalledModuleWrapperName = "Get-InstalledModule";
+    private const string InstallPSResourceWrapperName = "Install-PSResource";
+    private const string GetInstalledPSResourceWrapperName = "Get-InstalledPSResource";
 
     private static string? s_forcedModulePath;
     private static string? s_logPath;
@@ -55,7 +58,7 @@ public static class StartupHook
             Environment.SetEnvironmentVariable("PSModulePath", s_forcedModulePath);
             RuntimeHelpers.RunClassConstructor(moduleIntrinsics.TypeHandle);
             WriteLog($"configured module-path override; rewritten PSModulePath={Environment.GetEnvironmentVariable("PSModulePath")}");
-            BeginPowerShellGetCommandOverrides();
+            BeginModuleManagementCommandOverrides();
 
             Environment.SetEnvironmentVariable("PSModulePath", s_forcedModulePath);
             WriteLog($"pre-seeded PSModulePath={Environment.GetEnvironmentVariable("PSModulePath")}");
@@ -100,28 +103,28 @@ public static class StartupHook
         File.AppendAllText(s_logPath, $"{DateTime.UtcNow:O} {message}{Environment.NewLine}");
     }
 
-    private static void BeginPowerShellGetCommandOverrides()
+    private static void BeginModuleManagementCommandOverrides()
     {
         Thread thread = new(() =>
         {
             try
             {
-                WaitForPrimaryRunspaceAndInstallPowerShellGetOverrides();
+                WaitForPrimaryRunspaceAndInstallModuleManagementOverrides();
             }
             catch (Exception ex)
             {
-                WriteLog($"failed to install PowerShellGet overrides: {ex}");
+                WriteLog($"failed to install module-management overrides: {ex}");
             }
         })
         {
             IsBackground = true,
-            Name = "pwsh-host-powershellget-overrides",
+            Name = "pwsh-host-module-management-overrides",
         };
 
         thread.Start();
     }
 
-    private static void WaitForPrimaryRunspaceAndInstallPowerShellGetOverrides()
+    private static void WaitForPrimaryRunspaceAndInstallModuleManagementOverrides()
     {
         PropertyInfo primaryRunspaceProperty = typeof(Runspace).GetProperty(
             "PrimaryRunspace",
@@ -136,18 +139,18 @@ public static class StartupHook
             if (primaryRunspace is not null)
             {
                 object executionContext = executionContextProperty.GetValue(primaryRunspace)!;
-                InstallPowerShellGetOverrides(executionContext);
-                WriteLog("installed PowerShellGet command overrides");
+                InstallModuleManagementOverrides(executionContext);
+                WriteLog("installed module-management command overrides");
                 return;
             }
 
             Thread.Sleep(1);
         }
 
-        WriteLog("timed out waiting for primary runspace to install PowerShellGet overrides");
+        WriteLog("timed out waiting for primary runspace to install module-management overrides");
     }
 
-    private static void InstallPowerShellGetOverrides(object executionContext)
+    private static void InstallModuleManagementOverrides(object executionContext)
     {
         object sessionState = executionContext.GetType().GetProperty(
             "EngineSessionState",
@@ -163,8 +166,11 @@ public static class StartupHook
         string escapedForcedModulePath = (s_forcedModulePath ?? string.Empty).Replace("'", "''", StringComparison.Ordinal);
         InstallFunction(setFunction, sessionState, PowerShellGetPatchHelperName, BuildPowerShellGetPatchHelperScript(escapedForcedModulePath));
         InstallFunction(setFunction, sessionState, VenvInstalledModuleHelperName, BuildVenvInstalledModuleHelperScript(escapedForcedModulePath));
+        InstallFunction(setFunction, sessionState, VenvInstalledPSResourceHelperName, BuildVenvInstalledPSResourceHelperScript(escapedForcedModulePath));
         InstallFunction(setFunction, sessionState, InstallModuleWrapperName, BuildInstallModuleWrapperScript(escapedForcedModulePath));
         InstallFunction(setFunction, sessionState, GetInstalledModuleWrapperName, BuildGetInstalledModuleWrapperScript(escapedForcedModulePath));
+        InstallFunction(setFunction, sessionState, InstallPSResourceWrapperName, BuildInstallPSResourceWrapperScript(escapedForcedModulePath));
+        InstallFunction(setFunction, sessionState, GetInstalledPSResourceWrapperName, BuildGetInstalledPSResourceWrapperScript(escapedForcedModulePath));
     }
 
     private static void InstallFunction(MethodInfo setFunction, object sessionState, string functionName, string script)
@@ -445,6 +451,418 @@ process
 <##
 
 .ForwardHelpTargetName Install-Module
+.ForwardHelpCategory Function
+
+#>
+""";
+    }
+
+    private static string BuildVenvInstalledPSResourceHelperScript(string escapedForcedModulePath)
+    {
+        return $$"""
+[CmdletBinding()]
+param(
+    [Parameter(Position=0)]
+    [string[]]
+    ${Name},
+
+    [string]
+    ${Version},
+
+    [string]
+    ${Path}
+)
+
+Microsoft.PowerShell.Core\Import-Module Microsoft.PowerShell.PSResourceGet -Scope Local -ErrorAction Stop | Out-Null
+$targetPath = if ($Path) { $Path } else { '{{escapedForcedModulePath}}' }
+$targetPathPrefix = $targetPath.TrimEnd([char[]]@([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)) + [System.IO.Path]::DirectorySeparatorChar
+$candidateModules = @()
+if ($Name -and $Name.Count -gt 0) {
+    foreach ($moduleName in $Name) {
+        $candidateModules += Microsoft.PowerShell.Core\Get-Module -ListAvailable -Name $moduleName -Verbose:$false -ErrorAction SilentlyContinue
+    }
+}
+else {
+    $candidateModules = @(Microsoft.PowerShell.Core\Get-Module -ListAvailable -Verbose:$false -ErrorAction SilentlyContinue)
+}
+
+$filteredModules = $candidateModules |
+    Microsoft.PowerShell.Core\Where-Object {
+        $moduleBase = $_.ModuleBase
+        $moduleBase -and (
+            [string]::Equals($moduleBase, $targetPath, [System.StringComparison]::OrdinalIgnoreCase) -or
+            $moduleBase.StartsWith($targetPathPrefix, [System.StringComparison]::OrdinalIgnoreCase)
+        )
+    } |
+    Microsoft.PowerShell.Core\Where-Object {
+        -not $Version -or $_.Version.ToString() -eq $Version
+    } |
+    Microsoft.PowerShell.Utility\Sort-Object Name, Version -Descending |
+    Microsoft.PowerShell.Utility\Group-Object ModuleBase |
+    Microsoft.PowerShell.Core\ForEach-Object { $_.Group | Microsoft.PowerShell.Utility\Select-Object -First 1 }
+
+$filteredModules |
+    Microsoft.PowerShell.Utility\Sort-Object Name, Version -Descending |
+    Microsoft.PowerShell.Core\ForEach-Object {
+        $privateData = $null
+        if ($_.PrivateData -and $_.PrivateData.PSData) {
+            $privateData = $_.PrivateData.PSData
+        }
+
+        $installedDate = $null
+        try {
+            $installedDate = (Microsoft.PowerShell.Management\Get-Item $_.ModuleBase -ErrorAction Stop).LastWriteTime
+        }
+        catch {
+        }
+
+        $tags = @()
+        if ($privateData -and $privateData.Tags) {
+            $tags = @($privateData.Tags)
+        }
+        elseif ($_.Tags) {
+            $tags = @($_.Tags)
+        }
+
+        $prerelease = ''
+        if ($privateData -and $privateData.Prerelease) {
+            $prerelease = [string]$privateData.Prerelease
+        }
+
+        $projectUri = $null
+        if ($privateData -and $privateData.ProjectUri) {
+            $projectUri = $privateData.ProjectUri
+        }
+        elseif ($_.ProjectUri) {
+            $projectUri = $_.ProjectUri
+        }
+
+        $resource = [pscustomobject]@{
+            AdditionalMetadata = $null
+            Author = $_.Author
+            CompanyName = $_.CompanyName
+            Copyright = $_.Copyright
+            Dependencies = $_.RequiredModules
+            Description = $_.Description
+            IconUri = if ($privateData) { $privateData.IconUri } else { $null }
+            Includes = $null
+            InstalledDate = $installedDate
+            InstalledLocation = $targetPath
+            IsPrerelease = -not [string]::IsNullOrEmpty($prerelease)
+            LicenseUri = if ($privateData) { $privateData.LicenseUri } else { $null }
+            Name = $_.Name
+            Prerelease = $prerelease
+            ProjectUri = $projectUri
+            PublishedDate = $null
+            ReleaseNotes = if ($privateData) { $privateData.ReleaseNotes } else { $null }
+            Repository = $null
+            RepositorySourceLocation = $null
+            Tags = $tags
+            Type = [Microsoft.PowerShell.PSResourceGet.UtilClasses.ResourceType]::Module
+            UpdatedDate = $null
+            Version = $_.Version
+        }
+        $resource.PSTypeNames.Insert(0, 'Microsoft.PowerShell.PSResourceGet.UtilClasses.PSResourceInfo')
+        $resource
+    }
+""";
+    }
+
+    private static string BuildInstallPSResourceWrapperScript(string escapedForcedModulePath)
+    {
+        return $$"""
+[CmdletBinding(DefaultParameterSetName='NameParameterSet', SupportsShouldProcess=$true, ConfirmImpact='Medium')]
+param(
+    [Parameter(ParameterSetName='NameParameterSet', Mandatory=$true, Position=0, ValueFromPipelineByPropertyName=$true)]
+    [ValidateNotNullOrEmpty()]
+    [string[]]
+    ${Name},
+
+    [Parameter(ParameterSetName='InputObjectParameterSet', Mandatory=$true, Position=0, ValueFromPipeline=$true, ValueFromPipelineByPropertyName=$true)]
+    [ValidateNotNull()]
+    [psobject[]]
+    ${InputObject},
+
+    [string]
+    ${Version},
+
+    [string[]]
+    ${Repository},
+
+    [pscredential]
+    [System.Management.Automation.CredentialAttribute()]
+    ${Credential},
+
+    [ValidateSet('CurrentUser','AllUsers')]
+    [string]
+    ${Scope},
+
+    [switch]
+    ${TrustRepository},
+
+    [switch]
+    ${Quiet},
+
+    [switch]
+    ${Prerelease},
+
+    [switch]
+    ${Reinstall},
+
+    [switch]
+    ${NoClobber},
+
+    [switch]
+    ${AcceptLicense},
+
+    [switch]
+    ${PassThru},
+
+    [switch]
+    ${SkipDependencyCheck},
+
+    [switch]
+    ${AuthenticodeCheck},
+
+    [string]
+    ${TemporaryPath},
+
+    [object]
+    ${RequiredResource},
+
+    [string]
+    ${RequiredResourceFile})
+
+begin
+{
+    Microsoft.PowerShell.Core\Import-Module Microsoft.PowerShell.PSResourceGet -Scope Local -ErrorAction Stop | Out-Null
+    $forcedModulePath = '{{escapedForcedModulePath}}'
+    $forcedModulePathPrefix = $forcedModulePath.TrimEnd([char[]]@([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)) + [System.IO.Path]::DirectorySeparatorChar
+}
+
+process
+{
+    $nativeResults = @(Microsoft.PowerShell.PSResourceGet\Install-PSResource @PSBoundParameters)
+    $savePerformed = $false
+    $savedNames = @()
+
+    if ($PSCmdlet.ParameterSetName -eq 'NameParameterSet') {
+        $moduleNamesToSave = @()
+        foreach ($resourceName in $Name | Microsoft.PowerShell.Utility\Select-Object -Unique) {
+            if (& {{VenvInstalledPSResourceHelperName}} -Name $resourceName -Version $Version -Path $forcedModulePath) {
+                continue
+            }
+
+            $candidate = $null
+            try {
+                $findParameters = @{
+                    Name = $resourceName
+                    ErrorAction = 'Stop'
+                }
+
+                foreach ($parameterName in 'Version', 'Repository', 'Credential') {
+                    if ($PSBoundParameters.ContainsKey($parameterName)) {
+                        $findParameters[$parameterName] = $PSBoundParameters[$parameterName]
+                    }
+                }
+
+                if ($PSBoundParameters.ContainsKey('Prerelease')) {
+                    $findParameters['Prerelease'] = $true
+                }
+
+                $candidate = @(Microsoft.PowerShell.PSResourceGet\Find-PSResource @findParameters | Microsoft.PowerShell.Utility\Select-Object -First 1)
+            }
+            catch {
+            }
+
+            if ($candidate.Count -gt 0) {
+                $candidateType = [string]$candidate[0].Type
+                if ([string]::Equals($candidateType, 'Module', [System.StringComparison]::OrdinalIgnoreCase) -or $candidateType -eq '1') {
+                    $moduleNamesToSave += $resourceName
+                }
+            }
+        }
+
+        if ($moduleNamesToSave.Count -gt 0) {
+            $saveParameters = @{
+                Name = $moduleNamesToSave
+                Path = $forcedModulePath
+                ErrorAction = 'Stop'
+            }
+
+            foreach ($parameterName in 'Version', 'Repository', 'Credential', 'AuthenticodeCheck', 'AcceptLicense', 'Prerelease', 'Quiet', 'SkipDependencyCheck', 'TemporaryPath', 'TrustRepository', 'WhatIf', 'Confirm') {
+                if ($PSBoundParameters.ContainsKey($parameterName)) {
+                    $saveParameters[$parameterName] = $PSBoundParameters[$parameterName]
+                }
+            }
+
+            Microsoft.PowerShell.PSResourceGet\Save-PSResource @saveParameters | Microsoft.PowerShell.Core\Out-Null
+            $savePerformed = $true
+            $savedNames = $moduleNamesToSave
+        }
+    }
+    elseif ($PSCmdlet.ParameterSetName -eq 'InputObjectParameterSet') {
+        $moduleInputsToSave = @()
+        foreach ($resource in $InputObject) {
+            if (-not $resource) {
+                continue
+            }
+
+            $nameProperty = $resource.PSObject.Properties.Match('Name')
+            if ($nameProperty.Count -eq 0) {
+                continue
+            }
+
+            $resourceName = [string]$resource.Name
+            if ([string]::IsNullOrWhiteSpace($resourceName)) {
+                continue
+            }
+
+            if (& {{VenvInstalledPSResourceHelperName}} -Name $resourceName -Version $Version -Path $forcedModulePath) {
+                continue
+            }
+
+            $typeProperty = $resource.PSObject.Properties.Match('Type')
+            if ($typeProperty.Count -eq 0) {
+                continue
+            }
+
+            $resourceType = [string]$resource.Type
+            if (-not [string]::Equals($resourceType, 'Module', [System.StringComparison]::OrdinalIgnoreCase) -and $resourceType -ne '1') {
+                continue
+            }
+
+            $moduleInputsToSave += $resource
+            $savedNames += $resourceName
+        }
+
+        if ($moduleInputsToSave.Count -gt 0) {
+            $saveParameters = @{
+                InputObject = $moduleInputsToSave
+                Path = $forcedModulePath
+                ErrorAction = 'Stop'
+            }
+
+            foreach ($parameterName in 'Repository', 'Credential', 'AuthenticodeCheck', 'AcceptLicense', 'Prerelease', 'Quiet', 'SkipDependencyCheck', 'TemporaryPath', 'TrustRepository', 'WhatIf', 'Confirm') {
+                if ($PSBoundParameters.ContainsKey($parameterName)) {
+                    $saveParameters[$parameterName] = $PSBoundParameters[$parameterName]
+                }
+            }
+
+            Microsoft.PowerShell.PSResourceGet\Save-PSResource @saveParameters | Microsoft.PowerShell.Core\Out-Null
+            $savePerformed = $true
+        }
+    }
+
+    if ($PassThru) {
+        $filteredNativeResults = @($nativeResults | Microsoft.PowerShell.Core\Where-Object {
+            $installedLocation = $null
+            if ($_.PSObject.Properties.Match('InstalledLocation').Count -gt 0) {
+                $installedLocation = $_.InstalledLocation
+            }
+
+            -not $installedLocation -or
+            [string]::Equals($installedLocation, $forcedModulePath, [System.StringComparison]::OrdinalIgnoreCase) -or
+            $installedLocation.StartsWith($forcedModulePathPrefix, [System.StringComparison]::OrdinalIgnoreCase)
+        })
+
+        $fallbackResults = @()
+        if ($savePerformed) {
+            $requestedNames = if ($savedNames.Count -gt 0) { $savedNames | Microsoft.PowerShell.Utility\Select-Object -Unique } else { $Name }
+            $fallbackResults = @(& {{VenvInstalledPSResourceHelperName}} -Name $requestedNames -Version $Version -Path $forcedModulePath)
+        }
+
+        if ($filteredNativeResults.Count -gt 0 -and $fallbackResults.Count -gt 0) {
+            $reportedKeys = $filteredNativeResults | Microsoft.PowerShell.Core\ForEach-Object {
+                $_.Name.ToString() + '|' + $_.Version.ToString() + '|' + $_.InstalledLocation
+            }
+            $fallbackResults = $fallbackResults | Microsoft.PowerShell.Core\Where-Object {
+                ($_.Name.ToString() + '|' + $_.Version.ToString() + '|' + $_.InstalledLocation) -notin $reportedKeys
+            }
+        }
+
+        $filteredNativeResults
+        $fallbackResults
+    }
+}
+<##
+
+.ForwardHelpTargetName Install-PSResource
+.ForwardHelpCategory Function
+
+#>
+""";
+    }
+
+    private static string BuildGetInstalledPSResourceWrapperScript(string escapedForcedModulePath)
+    {
+        return $$"""
+[CmdletBinding()]
+param(
+    [Parameter(Position=0, ValueFromPipelineByPropertyName=$true)]
+    [ValidateNotNullOrEmpty()]
+    [string[]]
+    ${Name},
+
+    [string]
+    ${Version},
+
+    [ValidateSet('CurrentUser','AllUsers')]
+    [string]
+    ${Scope},
+
+    [string]
+    ${Path}
+)
+
+begin
+{
+    Microsoft.PowerShell.Core\Import-Module Microsoft.PowerShell.PSResourceGet -Scope Local -ErrorAction Stop | Out-Null
+    $forcedModulePath = '{{escapedForcedModulePath}}'
+    $targetPath = if ($PSBoundParameters.ContainsKey('Path') -and -not [string]::IsNullOrWhiteSpace($Path)) { $Path } else { $forcedModulePath }
+    $targetPathPrefix = $targetPath.TrimEnd([char[]]@([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)) + [System.IO.Path]::DirectorySeparatorChar
+}
+
+process
+{
+    if (-not [string]::Equals($targetPath, $forcedModulePath, [System.StringComparison]::OrdinalIgnoreCase)) {
+        Microsoft.PowerShell.PSResourceGet\Get-InstalledPSResource @PSBoundParameters
+        return
+    }
+
+    $nativeParameters = @{}
+    foreach ($entry in $PSBoundParameters.GetEnumerator()) {
+        if ($entry.Key -ne 'Scope' -and $entry.Key -ne 'ErrorAction') {
+            $nativeParameters[$entry.Key] = $entry.Value
+        }
+    }
+    $nativeParameters['Path'] = $forcedModulePath
+    $nativeParameters['ErrorAction'] = 'SilentlyContinue'
+
+    $nativeResults = @(Microsoft.PowerShell.PSResourceGet\Get-InstalledPSResource @nativeParameters | Microsoft.PowerShell.Core\Where-Object {
+        $installedLocation = $_.InstalledLocation
+        $installedLocation -and (
+            [string]::Equals($installedLocation, $targetPath, [System.StringComparison]::OrdinalIgnoreCase) -or
+            $installedLocation.StartsWith($targetPathPrefix, [System.StringComparison]::OrdinalIgnoreCase)
+        )
+    })
+
+    $fallbackResults = @(& {{VenvInstalledPSResourceHelperName}} -Name $Name -Version $Version -Path $targetPath)
+    if ($nativeResults.Count -gt 0 -and $fallbackResults.Count -gt 0) {
+        $reportedKeys = $nativeResults | Microsoft.PowerShell.Core\ForEach-Object {
+            $_.Name.ToString() + '|' + $_.Version.ToString() + '|' + $_.InstalledLocation
+        }
+        $fallbackResults = $fallbackResults | Microsoft.PowerShell.Core\Where-Object {
+            ($_.Name.ToString() + '|' + $_.Version.ToString() + '|' + $_.InstalledLocation) -notin $reportedKeys
+        }
+    }
+
+    $nativeResults
+    $fallbackResults
+}
+<##
+
+.ForwardHelpTargetName Get-InstalledPSResource
 .ForwardHelpCategory Function
 
 #>
