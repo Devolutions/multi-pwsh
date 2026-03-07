@@ -72,10 +72,14 @@ fn run_shim_with_module_path_startup_hook(forced_module_path: &Path) -> Output {
         "$module = Get-Module Microsoft.PowerShell.Utility -ErrorAction Ignore;",
         "if ($module) { Remove-Module Microsoft.PowerShell.Utility -Force -ErrorAction Ignore };",
         "$reimported = [bool](Import-Module Microsoft.PowerShell.Utility -PassThru -ErrorAction Ignore);",
+        "Get-InstalledModule __pwsh_host_missing__ -ErrorAction SilentlyContinue | Out-Null;",
+        "$powerShellGet = Get-Module PowerShellGet -ErrorAction Stop;",
         "$env:PSModulePath;",
         "([bool](Get-Command ConvertTo-Json -ErrorAction Ignore)).ToString();",
         "([bool](Get-Module Microsoft.PowerShell.Utility -ListAvailable -ErrorAction Ignore)).ToString();",
         "$reimported.ToString();",
+        "$powerShellGet.SessionState.PSVariable.GetValue('MyDocumentsModulesPath');",
+        "(($powerShellGet.SessionState.PSVariable.GetValue('PSGetPath')).CurrentUserModules);",
         "([bool]$env:DOTNET_STARTUP_HOOKS).ToString();",
         "([bool]$env:PWSH_STARTUP_HOOK_FORCE_PSMODULEPATH).ToString();"
     );
@@ -124,7 +128,7 @@ fn module_path_is_the_default_startup_hook_behavior() {
 
     let stdout = normalize_output(&output.stdout);
     let lines: Vec<&str> = stdout.lines().collect();
-    assert_eq!(lines.len(), 6, "unexpected stdout:\n{}", stdout);
+    assert_eq!(lines.len(), 8, "unexpected stdout:\n{}", stdout);
     assert_eq!(lines[0], venv_dir.path().to_string_lossy());
     assert_eq!(lines[1], "True", "ConvertTo-Json should remain available");
     assert_eq!(lines[2], "True", "Microsoft.PowerShell.Utility should stay listable");
@@ -133,8 +137,18 @@ fn module_path_is_the_default_startup_hook_behavior() {
         "Microsoft.PowerShell.Utility should re-import by name"
     );
     assert_eq!(
-        lines[4], "False",
+        lines[4],
+        venv_dir.path().to_string_lossy(),
+        "PowerShellGet current-user module path should be rewritten to the venv"
+    );
+    assert_eq!(
+        lines[5],
+        venv_dir.path().to_string_lossy(),
+        "PowerShellGet PSGetPath should advertise the venv as the current-user module path"
+    );
+    assert_eq!(
+        lines[6], "False",
         "DOTNET_STARTUP_HOOKS should not leak into process env"
     );
-    assert_eq!(lines[5], "False", "forced module path should not leak into process env");
+    assert_eq!(lines[7], "False", "forced module path should not leak into process env");
 }

@@ -82,10 +82,7 @@ impl Drop for ProcessEnvVarGuard {
 fn configure_virtual_environment_host_env(os: HostOs, venv_dir: &Path) -> Result<Vec<ProcessEnvVarGuard>> {
     match os {
         HostOs::Windows => Ok(vec![
-            ProcessEnvVarGuard::set(
-                pwsh_host::STARTUP_HOOK_FORCE_MODULE_PATH_ENV_VAR,
-                venv_dir.as_os_str(),
-            ),
+            ProcessEnvVarGuard::set(pwsh_host::STARTUP_HOOK_FORCE_MODULE_PATH_ENV_VAR, venv_dir.as_os_str()),
             ProcessEnvVarGuard::set(
                 pwsh_host::STARTUP_HOOK_STRATEGY_ENV_VAR,
                 pwsh_host::MODULE_PATH_STRATEGY,
