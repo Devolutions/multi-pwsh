@@ -112,6 +112,7 @@ mod pwsh {
         surface_path.push("..");
         surface_path.push("..");
         surface_path.push("dotnet");
+        surface_path.push("bindings");
         surface_path.push("obj");
         surface_path.push("powershell.ps74.surface.json");
 

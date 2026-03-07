@@ -79,6 +79,22 @@ impl Drop for ProcessEnvVarGuard {
     }
 }
 
+fn configure_virtual_environment_host_env(os: HostOs, venv_dir: &Path) -> Result<Vec<ProcessEnvVarGuard>> {
+    match os {
+        HostOs::Windows => Ok(vec![
+            ProcessEnvVarGuard::set(pwsh_host::STARTUP_HOOK_FORCE_MODULE_PATH_ENV_VAR, venv_dir.as_os_str()),
+            ProcessEnvVarGuard::set(
+                pwsh_host::STARTUP_HOOK_STRATEGY_ENV_VAR,
+                pwsh_host::MODULE_PATH_STRATEGY,
+            ),
+        ]),
+        HostOs::Macos | HostOs::Linux => Ok(vec![ProcessEnvVarGuard::set(
+            PSMODULEPATH_ENV_VAR,
+            venv_dir.as_os_str(),
+        )]),
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum HostSelector {
     Major(u64),
@@ -420,11 +436,12 @@ fn run_host_mode(selector_input: &str, pwsh_args: Vec<OsString>) -> Result<i32> 
     } = preprocess_host_args(pwsh_args)?;
     disable_powershell_update_notifications();
 
-    let _virtual_environment_guard = virtual_environment
+    let _virtual_environment_guards = virtual_environment
         .as_deref()
         .map(|name| resolve_virtual_environment_dir(&layout, name))
         .transpose()?
-        .map(|venv_dir| ProcessEnvVarGuard::set(PSMODULEPATH_ENV_VAR, venv_dir.as_os_str()));
+        .map(|venv_dir| configure_virtual_environment_host_env(os, &venv_dir))
+        .transpose()?;
 
     pwsh_host::run_pwsh_command_line_for_pwsh_exe(&executable, pwsh_args).map_err(|error| {
         MultiPwshError::Host(format!(
@@ -1575,14 +1592,84 @@ mod tests {
 
     #[test]
     fn process_env_var_guard_restores_previous_value() {
-        with_env_var(PSMODULEPATH_ENV_VAR, Some("original"), || {
+        with_env_var("PSModulePath", Some("original"), || {
             {
-                let _guard = ProcessEnvVarGuard::set(PSMODULEPATH_ENV_VAR, "override");
-                assert_eq!(env::var(PSMODULEPATH_ENV_VAR).unwrap(), "override");
+                let _guard = ProcessEnvVarGuard::set("PSModulePath", "override");
+                assert_eq!(env::var("PSModulePath").unwrap(), "override");
             }
 
-            assert_eq!(env::var(PSMODULEPATH_ENV_VAR).unwrap(), "original");
+            assert_eq!(env::var("PSModulePath").unwrap(), "original");
         });
+    }
+
+    #[test]
+    fn configure_virtual_environment_host_env_sets_and_restores_windows_startup_hook_variables() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let temp_dir = tempfile::tempdir().unwrap();
+        let forced_path = temp_dir.path().join("venv");
+        fs::create_dir_all(&forced_path).unwrap();
+
+        let previous_forced_path = env::var_os(pwsh_host::STARTUP_HOOK_FORCE_MODULE_PATH_ENV_VAR);
+        let previous_strategy = env::var_os(pwsh_host::STARTUP_HOOK_STRATEGY_ENV_VAR);
+
+        unsafe {
+            env::remove_var(pwsh_host::STARTUP_HOOK_FORCE_MODULE_PATH_ENV_VAR);
+            env::remove_var(pwsh_host::STARTUP_HOOK_STRATEGY_ENV_VAR);
+        }
+
+        {
+            let _guards = configure_virtual_environment_host_env(HostOs::Windows, &forced_path).unwrap();
+            assert_eq!(
+                PathBuf::from(
+                    env::var_os(pwsh_host::STARTUP_HOOK_FORCE_MODULE_PATH_ENV_VAR)
+                        .expect("forced module path should be set")
+                ),
+                forced_path
+            );
+            assert_eq!(
+                env::var(pwsh_host::STARTUP_HOOK_STRATEGY_ENV_VAR).unwrap(),
+                pwsh_host::MODULE_PATH_STRATEGY
+            );
+        }
+
+        match previous_forced_path {
+            Some(value) => unsafe { env::set_var(pwsh_host::STARTUP_HOOK_FORCE_MODULE_PATH_ENV_VAR, value) },
+            None => unsafe { env::remove_var(pwsh_host::STARTUP_HOOK_FORCE_MODULE_PATH_ENV_VAR) },
+        }
+
+        match previous_strategy {
+            Some(value) => unsafe { env::set_var(pwsh_host::STARTUP_HOOK_STRATEGY_ENV_VAR, value) },
+            None => unsafe { env::remove_var(pwsh_host::STARTUP_HOOK_STRATEGY_ENV_VAR) },
+        }
+    }
+
+    #[test]
+    fn configure_virtual_environment_host_env_sets_and_restores_unix_psmodulepath() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let temp_dir = tempfile::tempdir().unwrap();
+        let forced_path = temp_dir.path().join("venv");
+        fs::create_dir_all(&forced_path).unwrap();
+
+        let previous_module_path = env::var_os(PSMODULEPATH_ENV_VAR);
+
+        unsafe {
+            env::remove_var(PSMODULEPATH_ENV_VAR);
+        }
+
+        {
+            let _guards = configure_virtual_environment_host_env(HostOs::Linux, &forced_path).unwrap();
+            assert_eq!(
+                PathBuf::from(env::var_os(PSMODULEPATH_ENV_VAR).expect("PSModulePath should be set")),
+                forced_path
+            );
+            assert!(env::var_os(pwsh_host::STARTUP_HOOK_FORCE_MODULE_PATH_ENV_VAR).is_none());
+            assert!(env::var_os(pwsh_host::STARTUP_HOOK_STRATEGY_ENV_VAR).is_none());
+        }
+
+        match previous_module_path {
+            Some(value) => unsafe { env::set_var(PSMODULEPATH_ENV_VAR, value) },
+            None => unsafe { env::remove_var(PSMODULEPATH_ENV_VAR) },
+        }
     }
 
     #[test]

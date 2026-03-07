@@ -1,12 +1,15 @@
 param(
     [Parameter(Mandatory = $false)]
-    [string]$OutSurfacePath = "$PSScriptRoot/../dotnet/obj/powershell.ps74.surface.json",
+    [string]$OutSurfacePath = "$PSScriptRoot/../dotnet/bindings/obj/powershell.ps74.surface.json",
 
     [Parameter(Mandatory = $false)]
-    [string]$OutContractPath = "$PSScriptRoot/../dotnet/obj/bindings.ps74.discovered.contract.json",
+    [string]$OutContractPath = "$PSScriptRoot/../dotnet/bindings/obj/bindings.ps74.discovered.contract.json",
 
     [Parameter(Mandatory = $false)]
-    [string]$OutCSharpWrappersPath = "$PSScriptRoot/../dotnet/obj/Bindings.Discovered.Generated.cs",
+    [string]$OutCSharpWrappersPath = "$PSScriptRoot/../dotnet/bindings/obj/Bindings.Discovered.Generated.cs",
+
+    [Parameter(Mandatory = $false)]
+    [string]$BindingAssemblyName = "Devolutions.PowerShell.Bindings",
 
     [Parameter(Mandatory = $false)]
     [switch]$SkipVersionCheck
@@ -265,7 +268,7 @@ if (-not $SkipVersionCheck) {
 }
 
 $contractName = 'PS74'
-$bindingTypeName = 'NativeHost.Bindings, Bindings'
+$bindingTypeName = "NativeHost.Bindings, $BindingAssemblyName"
 $bootstrapMethod = 'Bindings_GetApiPS74'
 $csharpApiStructName = 'ApiPS74'
 $rustApiStructName = 'ApiPs74'
