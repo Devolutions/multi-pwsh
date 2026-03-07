@@ -31,6 +31,7 @@ use versions::{
 
 const POWERSHELL_UPDATECHECK_ENV_VAR: &str = "POWERSHELL_UPDATECHECK";
 const POWERSHELL_UPDATECHECK_OFF: &str = "Off";
+const PSMODULEPATH_ENV_VAR: &str = "PSModulePath";
 const VIRTUAL_ENVIRONMENT_FLAG: &str = "-virtualenvironment";
 const VIRTUAL_ENVIRONMENT_SHORT_FLAG: &str = "-venv";
 
@@ -78,17 +79,23 @@ impl Drop for ProcessEnvVarGuard {
     }
 }
 
-fn configure_virtual_environment_host_env(venv_dir: &Path) -> Result<Vec<ProcessEnvVarGuard>> {
-    Ok(vec![
-        ProcessEnvVarGuard::set(
-            pwsh_host::PROVIDER_UNIFY_FORCE_MODULE_PATH_ENV_VAR,
+fn configure_virtual_environment_host_env(os: HostOs, venv_dir: &Path) -> Result<Vec<ProcessEnvVarGuard>> {
+    match os {
+        HostOs::Windows => Ok(vec![
+            ProcessEnvVarGuard::set(
+                pwsh_host::PROVIDER_UNIFY_FORCE_MODULE_PATH_ENV_VAR,
+                venv_dir.as_os_str(),
+            ),
+            ProcessEnvVarGuard::set(
+                pwsh_host::PROVIDER_UNIFY_STRATEGY_ENV_VAR,
+                pwsh_host::PROVIDER_UNIFY_STRATEGY,
+            ),
+        ]),
+        HostOs::Macos | HostOs::Linux => Ok(vec![ProcessEnvVarGuard::set(
+            PSMODULEPATH_ENV_VAR,
             venv_dir.as_os_str(),
-        ),
-        ProcessEnvVarGuard::set(
-            pwsh_host::PROVIDER_UNIFY_STRATEGY_ENV_VAR,
-            pwsh_host::PROVIDER_UNIFY_STRATEGY,
-        ),
-    ])
+        )]),
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -436,7 +443,7 @@ fn run_host_mode(selector_input: &str, pwsh_args: Vec<OsString>) -> Result<i32> 
         .as_deref()
         .map(|name| resolve_virtual_environment_dir(&layout, name))
         .transpose()?
-        .map(|venv_dir| configure_virtual_environment_host_env(&venv_dir))
+        .map(|venv_dir| configure_virtual_environment_host_env(os, &venv_dir))
         .transpose()?;
 
     pwsh_host::run_pwsh_command_line_for_pwsh_exe(&executable, pwsh_args).map_err(|error| {
@@ -1599,7 +1606,7 @@ mod tests {
     }
 
     #[test]
-    fn configure_virtual_environment_host_env_sets_and_restores_startup_hook_variables() {
+    fn configure_virtual_environment_host_env_sets_and_restores_windows_startup_hook_variables() {
         let _guard = ENV_LOCK.lock().unwrap();
         let temp_dir = tempfile::tempdir().unwrap();
         let forced_path = temp_dir.path().join("venv");
@@ -1614,7 +1621,7 @@ mod tests {
         }
 
         {
-            let _guards = configure_virtual_environment_host_env(&forced_path).unwrap();
+            let _guards = configure_virtual_environment_host_env(HostOs::Windows, &forced_path).unwrap();
             assert_eq!(
                 PathBuf::from(
                     env::var_os(pwsh_host::PROVIDER_UNIFY_FORCE_MODULE_PATH_ENV_VAR)
@@ -1636,6 +1643,35 @@ mod tests {
         match previous_strategy {
             Some(value) => unsafe { env::set_var(pwsh_host::PROVIDER_UNIFY_STRATEGY_ENV_VAR, value) },
             None => unsafe { env::remove_var(pwsh_host::PROVIDER_UNIFY_STRATEGY_ENV_VAR) },
+        }
+    }
+
+    #[test]
+    fn configure_virtual_environment_host_env_sets_and_restores_unix_psmodulepath() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let temp_dir = tempfile::tempdir().unwrap();
+        let forced_path = temp_dir.path().join("venv");
+        fs::create_dir_all(&forced_path).unwrap();
+
+        let previous_module_path = env::var_os(PSMODULEPATH_ENV_VAR);
+
+        unsafe {
+            env::remove_var(PSMODULEPATH_ENV_VAR);
+        }
+
+        {
+            let _guards = configure_virtual_environment_host_env(HostOs::Linux, &forced_path).unwrap();
+            assert_eq!(
+                PathBuf::from(env::var_os(PSMODULEPATH_ENV_VAR).expect("PSModulePath should be set")),
+                forced_path
+            );
+            assert!(env::var_os(pwsh_host::PROVIDER_UNIFY_FORCE_MODULE_PATH_ENV_VAR).is_none());
+            assert!(env::var_os(pwsh_host::PROVIDER_UNIFY_STRATEGY_ENV_VAR).is_none());
+        }
+
+        match previous_module_path {
+            Some(value) => unsafe { env::set_var(PSMODULEPATH_ENV_VAR, value) },
+            None => unsafe { env::remove_var(PSMODULEPATH_ENV_VAR) },
         }
     }
 
