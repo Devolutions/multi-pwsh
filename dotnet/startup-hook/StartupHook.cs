@@ -476,29 +476,41 @@ param(
 Microsoft.PowerShell.Core\Import-Module Microsoft.PowerShell.PSResourceGet -Scope Local -ErrorAction Stop | Out-Null
 $targetPath = if ($Path) { $Path } else { '{{escapedForcedModulePath}}' }
 $targetPathPrefix = $targetPath.TrimEnd([char[]]@([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)) + [System.IO.Path]::DirectorySeparatorChar
-$candidateModules = @()
+$candidateManifestPaths = @()
 if ($Name -and $Name.Count -gt 0) {
     foreach ($moduleName in $Name) {
-        $candidateModules += Microsoft.PowerShell.Core\Get-Module -ListAvailable -Name $moduleName -Verbose:$false -ErrorAction SilentlyContinue
+        $moduleRoot = Microsoft.PowerShell.Management\Join-Path $targetPath $moduleName
+        if (Microsoft.PowerShell.Management\Test-Path $moduleRoot -PathType Container) {
+            $candidateManifestPaths += Microsoft.PowerShell.Management\Get-ChildItem -Path $moduleRoot -Filter *.psd1 -File -Recurse -ErrorAction SilentlyContinue
+        }
     }
 }
 else {
-    $candidateModules = @(Microsoft.PowerShell.Core\Get-Module -ListAvailable -Verbose:$false -ErrorAction SilentlyContinue)
+    $candidateManifestPaths = @(Microsoft.PowerShell.Management\Get-ChildItem -Path $targetPath -Filter *.psd1 -File -Recurse -ErrorAction SilentlyContinue)
 }
 
-$filteredModules = $candidateModules |
+$filteredModules = $candidateManifestPaths |
+    Microsoft.PowerShell.Utility\Sort-Object FullName -Unique |
     Microsoft.PowerShell.Core\Where-Object {
-        $moduleBase = $_.ModuleBase
+        $moduleBase = Microsoft.PowerShell.Management\Split-Path $_.FullName -Parent
         $moduleBase -and (
             [string]::Equals($moduleBase, $targetPath, [System.StringComparison]::OrdinalIgnoreCase) -or
             $moduleBase.StartsWith($targetPathPrefix, [System.StringComparison]::OrdinalIgnoreCase)
         )
     } |
+    Microsoft.PowerShell.Core\ForEach-Object {
+        try {
+            Microsoft.PowerShell.Core\Test-ModuleManifest -Path $_.FullName -ErrorAction Stop
+        }
+        catch {
+        }
+    } |
     Microsoft.PowerShell.Core\Where-Object {
-        -not $Version -or $_.Version.ToString() -eq $Version
+        (-not $Name -or $Name.Count -eq 0 -or $_.Name -in $Name) -and
+        (-not $Version -or $_.Version.ToString() -eq $Version)
     } |
     Microsoft.PowerShell.Utility\Sort-Object Name, Version -Descending |
-    Microsoft.PowerShell.Utility\Group-Object ModuleBase |
+    Microsoft.PowerShell.Utility\Group-Object Path |
     Microsoft.PowerShell.Core\ForEach-Object { $_.Group | Microsoft.PowerShell.Utility\Select-Object -First 1 }
 
 $filteredModules |
