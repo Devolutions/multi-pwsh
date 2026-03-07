@@ -4,4 +4,4 @@ pub const PROVIDER_UNIFY_STRATEGY: &str = "provider-unify";
 pub(crate) const PROVIDER_UNIFY_STARTUP_HOOK_ASSEMBLY_NAME: &str = "PwshModulePathStartupHook";
 
 pub(crate) const STARTUP_HOOK_DLL: &[u8] =
-    include_bytes!("../../../prototype/startup-hook/bin/Release/net8.0/PwshModulePathStartupHook.dll");
+    include_bytes!("../../../dotnet/startup-hook/bin/Release/net8.0/PwshModulePathStartupHook.dll");

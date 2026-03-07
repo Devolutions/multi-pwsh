@@ -1,9 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="Managed.Common.props" />
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
     <EnableDynamicLoading>true</EnableDynamicLoading>
     <UseRidGraph>true</UseRidGraph>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <DiscoveredBindingsContractPath Condition="'$(DiscoveredBindingsContractPath)' == ''">$(MSBuildThisFileDirectory)obj\bindings.ps74.discovered.contract.json</DiscoveredBindingsContractPath>
     <DiscoveredBindingsSurfacePath Condition="'$(DiscoveredBindingsSurfacePath)' == ''">$(MSBuildThisFileDirectory)obj\powershell.ps74.surface.json</DiscoveredBindingsSurfacePath>
     <DiscoveredBindingsWrappersPath Condition="'$(DiscoveredBindingsWrappersPath)' == ''">$(MSBuildThisFileDirectory)obj\Bindings.Discovered.Generated.cs</DiscoveredBindingsWrappersPath>
@@ -12,7 +11,7 @@
     <PwshExePath Condition="'$(PwshExePath)' == ''">pwsh</PwshExePath>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Microsoft.PowerShell.SDK" Version="7.4.13" />
+    <Compile Remove="startup-hook\**\*.cs" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="$(DiscoveredBindingsWrappersPath)" Visible="false" />

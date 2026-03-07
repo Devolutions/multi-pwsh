@@ -30,29 +30,32 @@ fn main() {
     }
 
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
-    let mut dotnet_source_dir = manifest_dir.clone();
-    dotnet_source_dir.push("..");
-    dotnet_source_dir.push("..");
-    dotnet_source_dir.push("dotnet");
+    let mut dotnet_dir = manifest_dir.clone();
+    dotnet_dir.push("..");
+    dotnet_dir.push("..");
+    dotnet_dir.push("dotnet");
+    let workspace_root = dotnet_dir.parent().unwrap();
 
-    let mut startup_hook_project = manifest_dir.clone();
-    startup_hook_project.push("..");
-    startup_hook_project.push("..");
-    startup_hook_project.push("prototype");
-    startup_hook_project.push("startup-hook");
-    startup_hook_project.push("PwshModulePathStartupHook.csproj");
+    let bindings_project = dotnet_dir.join("Bindings.csproj");
+    let managed_common_props = dotnet_dir.join("Managed.Common.props");
+    let bindings_source = dotnet_dir.join("Bindings.cs");
+    let startup_hook_project = dotnet_dir.join("startup-hook").join("PwshModulePathStartupHook.csproj");
+    let startup_hook_source = dotnet_dir.join("startup-hook").join("StartupHook.cs");
 
-    println!("cargo:rerun-if-changed={}", dotnet_source_dir.display());
+    println!("cargo:rerun-if-changed={}", bindings_project.display());
+    println!("cargo:rerun-if-changed={}", bindings_source.display());
     println!("cargo:rerun-if-changed={}", startup_hook_project.display());
+    println!("cargo:rerun-if-changed={}", startup_hook_source.display());
+    println!("cargo:rerun-if-changed={}", managed_common_props.display());
     println!(
         "cargo:rerun-if-changed={}",
-        startup_hook_project
-            .parent()
-            .unwrap()
-            .join("PwshModulePathStartupHook.cs")
-            .display()
+        workspace_root.join("scripts").join("Discover-Bindings.ps1").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        workspace_root.join("scripts").join("Generate-Bindings.ps1").display()
     );
 
-    build_dotnet_project(&dotnet_source_dir);
+    build_dotnet_project(&bindings_project);
     build_dotnet_project(&startup_hook_project);
 }

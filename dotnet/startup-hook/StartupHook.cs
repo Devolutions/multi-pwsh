@@ -119,7 +119,7 @@ public static class StartupHook
         Type moduleIntrinsics = sma.GetType("System.Management.Automation.ModuleIntrinsics", throwOnError: true)!;
         MethodInfo getPsHomeModulePath = moduleIntrinsics.GetMethod(
             "GetPSHomeModulePath",
-            BindingFlags.Static | BindingFlags.NonPublic) !;
+            BindingFlags.Static | BindingFlags.NonPublic)!;
         string? psHomeModulePath = getPsHomeModulePath.Invoke(null, null) as string;
 
         if (!string.IsNullOrWhiteSpace(psHomeModulePath) && yieldedPaths.Add(psHomeModulePath))
@@ -132,22 +132,22 @@ public static class StartupHook
     {
         MethodInfo getPersonalModulePath = moduleIntrinsics.GetMethod(
             "GetPersonalModulePath",
-            BindingFlags.Static | BindingFlags.NonPublic) !;
+            BindingFlags.Static | BindingFlags.NonPublic)!;
         MethodInfo getSharedModulePath = moduleIntrinsics.GetMethod(
             "GetSharedModulePath",
-            BindingFlags.Static | BindingFlags.NonPublic) !;
+            BindingFlags.Static | BindingFlags.NonPublic)!;
         MethodInfo getEnumeratedModulePath = moduleIntrinsics.GetMethod(
             "GetModulePath",
             BindingFlags.Static | BindingFlags.NonPublic,
             binder: null,
             types: new[] { typeof(bool), sma.GetType("System.Management.Automation.ExecutionContext", throwOnError: true)! },
-            modifiers: null) !;
+            modifiers: null)!;
         MethodInfo pathReplacement = typeof(StartupHook).GetMethod(
             nameof(GetUnifiedModulePathReplacement),
-            BindingFlags.NonPublic | BindingFlags.Static) !;
+            BindingFlags.NonPublic | BindingFlags.Static)!;
         MethodInfo enumeratedPathReplacement = typeof(StartupHook).GetMethod(
             nameof(GetUnifiedEnumeratedModulePathReplacement),
-            BindingFlags.NonPublic | BindingFlags.Static) !;
+            BindingFlags.NonPublic | BindingFlags.Static)!;
 
         Type configScope = sma.GetType("System.Management.Automation.Configuration.ConfigScope", throwOnError: true)!;
         Type powerShellConfig = sma.GetType("System.Management.Automation.Configuration.PowerShellConfig", throwOnError: true)!;
@@ -156,10 +156,10 @@ public static class StartupHook
             BindingFlags.Instance | BindingFlags.NonPublic,
             binder: null,
             types: new[] { configScope },
-            modifiers: null) !;
+            modifiers: null)!;
         MethodInfo configReplacement = typeof(StartupHook).GetMethod(
             nameof(GetUnifiedConfigModulePathReplacement),
-            BindingFlags.NonPublic | BindingFlags.Static) !;
+            BindingFlags.NonPublic | BindingFlags.Static)!;
 
         PatchMethod(getPersonalModulePath, pathReplacement);
         PatchMethod(getSharedModulePath, pathReplacement);
@@ -171,7 +171,7 @@ public static class StartupHook
     {
         if (IntPtr.Size != 8)
         {
-            throw new PlatformNotSupportedException("This prototype only supports x64 processes.");
+            throw new PlatformNotSupportedException("This startup hook only supports x64 processes.");
         }
 
         RuntimeHelpers.PrepareMethod(target.MethodHandle);
