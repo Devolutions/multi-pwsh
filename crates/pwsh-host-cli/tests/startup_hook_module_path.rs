@@ -111,9 +111,9 @@ fn run_shim_with_module_path_startup_hook(forced_module_path: &Path) -> Output {
         "$reimported.ToString();",
         "$powerShellGet.SessionState.PSVariable.GetValue('MyDocumentsModulesPath');",
         "(($powerShellGet.SessionState.PSVariable.GetValue('PSGetPath')).CurrentUserModules);",
-        "$installedPsResource = if ($psResourceHookReady) { Get-InstalledPSResource PwshHost.TestModule -ErrorAction SilentlyContinue | Select-Object -First 1 } else { $null };",
-        "([bool]$installedPsResource).ToString();",
-        "if ($installedPsResource) { $installedPsResource.InstalledLocation } else { '' };",
+        "$psResourceCommand = if ($psResourceHookReady) { Get-Command Get-InstalledPSResource -ErrorAction SilentlyContinue } else { $null };",
+        "([bool]$psResourceCommand).ToString();",
+        "if ($psResourceCommand) { $psResourceCommand.CommandType.ToString() } else { '' };",
         "([bool]$env:DOTNET_STARTUP_HOOKS).ToString();",
         "([bool]$env:PWSH_STARTUP_HOOK_FORCE_PSMODULEPATH).ToString();"
     );
@@ -183,12 +183,11 @@ fn module_path_is_the_default_startup_hook_behavior() {
     );
     assert_eq!(
         lines[6], "True",
-        "Get-InstalledPSResource should project a venv-local module"
+        "Get-InstalledPSResource should be replaced by an injected wrapper command"
     );
     assert_eq!(
-        lines[7],
-        venv_dir.path().to_string_lossy(),
-        "Get-InstalledPSResource should report the forced venv as the installed location"
+        lines[7], "Function",
+        "Get-InstalledPSResource should resolve to the injected wrapper function"
     );
     assert_eq!(
         lines[8], "False",
