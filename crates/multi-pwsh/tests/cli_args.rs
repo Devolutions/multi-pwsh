@@ -74,6 +74,10 @@ fn normalize_output(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).replace("\r\n", "\n").trim().to_string()
 }
 
+fn split_module_path_entries(module_path: &str) -> Vec<PathBuf> {
+    std::env::split_paths(&std::ffi::OsString::from(module_path)).collect()
+}
+
 fn quote_pwsh_literal(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
 }
@@ -621,11 +625,24 @@ fn host_venv_rewrites_powershellget_current_user_module_path() {
     let venv_root = temp_dir.path().join("venv").join("msgraph");
     let runtime_paths = query_venv_runtime_paths(temp_dir.path(), &version, "msgraph");
     let expected = venv_root.to_string_lossy().to_string();
+    let module_path_entries = split_module_path_entries(
+        runtime_paths["EnvPSModulePath"]
+            .as_str()
+            .expect("expected EnvPSModulePath string"),
+    );
 
-    assert!(runtime_paths["EnvPSModulePath"]
-        .as_str()
-        .expect("expected EnvPSModulePath string")
-        .starts_with(&expected));
+    assert_eq!(
+        module_path_entries.len(),
+        2,
+        "expected venv PSModulePath to contain only the venv and bundled PSHOME modules, got {:?}",
+        module_path_entries
+    );
+    assert_eq!(module_path_entries[0], venv_root);
+    assert!(
+        module_path_entries[1].ends_with("Modules"),
+        "expected bundled PSHOME modules path, got {:?}",
+        module_path_entries[1]
+    );
     assert_eq!(
         runtime_paths["PowerShellGetCurrentUserModules"].as_str(),
         Some(expected.as_str())

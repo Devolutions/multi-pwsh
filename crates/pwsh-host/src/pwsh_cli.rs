@@ -9,7 +9,8 @@ use crate::pdcstring::PdCString;
 use crate::startup_hook::{STARTUP_HOOK_ASSEMBLY_NAME, STARTUP_HOOK_DLL};
 
 const STARTUP_HOOKS_ENV_VAR: &str = "PWSH_HOST_STARTUP_HOOKS";
-const FORCE_MODULE_PATH_ENV_VAR: &str = "PWSH_STARTUP_HOOK_FORCE_PSMODULEPATH";
+const MODULE_VENV_PATH_ENV_VAR: &str = "PSMODULE_VENV_PATH";
+const LEGACY_FORCE_MODULE_PATH_ENV_VAR: &str = "PWSH_STARTUP_HOOK_FORCE_PSMODULEPATH";
 const LOG_PATH_ENV_VAR: &str = "PWSH_STARTUP_HOOK_LOG_PATH";
 const STRATEGY_ENV_VAR: &str = "PWSH_STARTUP_HOOK_STRATEGY";
 
@@ -32,13 +33,13 @@ enum StartupHooksTarget {
 
 fn resolve_startup_hooks(
     startup_hooks: Option<OsString>,
-    forced_module_path: Option<&OsString>,
+    module_venv_path: Option<&OsString>,
     log_path: Option<&OsString>,
     strategy: Option<&OsString>,
 ) -> StartupHooksTarget {
     match startup_hooks {
         Some(path) => StartupHooksTarget::Path(path),
-        None if forced_module_path.is_some() || log_path.is_some() || strategy.is_some() => {
+        None if module_venv_path.is_some() || log_path.is_some() || strategy.is_some() => {
             StartupHooksTarget::EmbeddedAssemblyName
         }
         None => StartupHooksTarget::None,
@@ -90,12 +91,13 @@ where
     let context = hostfxr.initialize_for_dotnet_command_line_args(&host_args)?;
 
     let startup_hooks = take_env_var(STARTUP_HOOKS_ENV_VAR);
-    let forced_module_path = take_env_var(FORCE_MODULE_PATH_ENV_VAR);
+    let module_venv_path =
+        take_env_var(MODULE_VENV_PATH_ENV_VAR).or_else(|| take_env_var(LEGACY_FORCE_MODULE_PATH_ENV_VAR));
     let log_path = take_env_var(LOG_PATH_ENV_VAR);
     let strategy = take_env_var(STRATEGY_ENV_VAR);
     let startup_hooks = resolve_startup_hooks(
         startup_hooks,
-        forced_module_path.as_ref(),
+        module_venv_path.as_ref(),
         log_path.as_ref(),
         strategy.as_ref(),
     );
@@ -112,9 +114,9 @@ where
         }
     }
 
-    if let Some(forced_module_path) = forced_module_path {
-        let forced_module_path_pd = PdCString::from_os_str(&forced_module_path)?;
-        context.set_runtime_property_value(pdcstr!("PWSH_STARTUP_HOOK_FORCE_PSMODULEPATH"), &forced_module_path_pd)?;
+    if let Some(module_venv_path) = module_venv_path {
+        let module_venv_path_pd = PdCString::from_os_str(&module_venv_path)?;
+        context.set_runtime_property_value(pdcstr!("PSMODULE_VENV_PATH"), &module_venv_path_pd)?;
     }
 
     if let Some(log_path) = log_path {

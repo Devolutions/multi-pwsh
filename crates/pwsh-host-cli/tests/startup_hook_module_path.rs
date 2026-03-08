@@ -63,8 +63,8 @@ impl Drop for TempDirGuard {
     }
 }
 
-fn write_test_module(forced_module_path: &Path) {
-    let module_root = forced_module_path.join("PwshHost.TestModule").join("1.2.3");
+fn write_test_module(module_venv_path: &Path) {
+    let module_root = module_venv_path.join("PwshHost.TestModule").join("1.2.3");
     fs::create_dir_all(&module_root).expect("failed to create test module directory");
 
     let manifest = r#"@{
@@ -88,7 +88,7 @@ fn write_test_module(forced_module_path: &Path) {
     fs::write(module_root.join("PwshHost.TestModule.psd1"), manifest).expect("failed to write test module manifest");
 }
 
-fn run_shim_with_module_path_startup_hook(forced_module_path: &Path) -> Output {
+fn run_shim_with_module_path_startup_hook(module_venv_path: &Path) -> Output {
     let shim = find_shim_binary();
     assert!(shim.exists(), "missing shim binary at {}", shim.display());
     let runtime_temp_dir = TempDirGuard::new("pwsh_host_runtime_temp");
@@ -115,7 +115,7 @@ fn run_shim_with_module_path_startup_hook(forced_module_path: &Path) -> Output {
         "([bool]$psResourceCommand).ToString();",
         "if ($psResourceCommand) { $psResourceCommand.CommandType.ToString() } else { '' };",
         "([bool]$env:DOTNET_STARTUP_HOOKS).ToString();",
-        "([bool]$env:PWSH_STARTUP_HOOK_FORCE_PSMODULEPATH).ToString();"
+        "([bool]$env:PSMODULE_VENV_PATH).ToString();"
     );
 
     let output = Command::new(shim)
@@ -127,7 +127,7 @@ fn run_shim_with_module_path_startup_hook(forced_module_path: &Path) -> Output {
         .env("TMP", runtime_temp_dir.path())
         .env_remove("DOTNET_STARTUP_HOOKS")
         .env_remove("PWSH_HOST_STARTUP_HOOKS")
-        .env("PWSH_STARTUP_HOOK_FORCE_PSMODULEPATH", forced_module_path)
+        .env("PSMODULE_VENV_PATH", module_venv_path)
         .env_remove("PWSH_STARTUP_HOOK_STRATEGY")
         .output()
         .expect("failed to run pwsh-host with module-path startup hook");
@@ -164,7 +164,16 @@ fn module_path_is_the_default_startup_hook_behavior() {
     let stdout = normalize_output(&output.stdout);
     let lines: Vec<&str> = stdout.lines().collect();
     assert_eq!(lines.len(), 10, "unexpected stdout:\n{}", stdout);
-    assert_eq!(lines[0], venv_dir.path().to_string_lossy());
+    assert!(
+        lines[0].starts_with(venv_dir.path().to_string_lossy().as_ref()),
+        "PSModulePath should start with the venv path, got {}",
+        lines[0]
+    );
+    assert!(
+        lines[0].contains(';'),
+        "PSModulePath should include the bundled PSHOME module path, got {}",
+        lines[0]
+    );
     assert_eq!(lines[1], "True", "ConvertTo-Json should remain available");
     assert_eq!(lines[2], "True", "Microsoft.PowerShell.Utility should stay listable");
     assert_eq!(
@@ -194,5 +203,5 @@ fn module_path_is_the_default_startup_hook_behavior() {
         lines[8], "False",
         "DOTNET_STARTUP_HOOKS should not leak into process env"
     );
-    assert_eq!(lines[9], "False", "forced module path should not leak into process env");
+    assert_eq!(lines[9], "False", "module venv path should not leak into process env");
 }

@@ -82,7 +82,7 @@ fn configure_virtual_environment_host_env(os: HostOs, venv_dir: &Path) -> Result
     let _ = os;
 
     Ok(vec![
-        ProcessEnvVarGuard::set(pwsh_host::STARTUP_HOOK_FORCE_MODULE_PATH_ENV_VAR, venv_dir.as_os_str()),
+        ProcessEnvVarGuard::set(pwsh_host::STARTUP_HOOK_MODULE_VENV_PATH_ENV_VAR, venv_dir.as_os_str()),
         ProcessEnvVarGuard::set(
             pwsh_host::STARTUP_HOOK_STRATEGY_ENV_VAR,
             pwsh_host::MODULE_PATH_STRATEGY,
@@ -1760,11 +1760,11 @@ mod tests {
         let forced_path = temp_dir.path().join("venv");
         fs::create_dir_all(&forced_path).unwrap();
 
-        let previous_forced_path = env::var_os(pwsh_host::STARTUP_HOOK_FORCE_MODULE_PATH_ENV_VAR);
+        let previous_forced_path = env::var_os(pwsh_host::STARTUP_HOOK_MODULE_VENV_PATH_ENV_VAR);
         let previous_strategy = env::var_os(pwsh_host::STARTUP_HOOK_STRATEGY_ENV_VAR);
 
         unsafe {
-            env::remove_var(pwsh_host::STARTUP_HOOK_FORCE_MODULE_PATH_ENV_VAR);
+            env::remove_var(pwsh_host::STARTUP_HOOK_MODULE_VENV_PATH_ENV_VAR);
             env::remove_var(pwsh_host::STARTUP_HOOK_STRATEGY_ENV_VAR);
         }
 
@@ -1772,8 +1772,8 @@ mod tests {
             let _guards = configure_virtual_environment_host_env(HostOs::Windows, &forced_path).unwrap();
             assert_eq!(
                 PathBuf::from(
-                    env::var_os(pwsh_host::STARTUP_HOOK_FORCE_MODULE_PATH_ENV_VAR)
-                        .expect("forced module path should be set")
+                    env::var_os(pwsh_host::STARTUP_HOOK_MODULE_VENV_PATH_ENV_VAR)
+                        .expect("module venv path should be set")
                 ),
                 forced_path
             );
@@ -1784,8 +1784,8 @@ mod tests {
         }
 
         match previous_forced_path {
-            Some(value) => unsafe { env::set_var(pwsh_host::STARTUP_HOOK_FORCE_MODULE_PATH_ENV_VAR, value) },
-            None => unsafe { env::remove_var(pwsh_host::STARTUP_HOOK_FORCE_MODULE_PATH_ENV_VAR) },
+            Some(value) => unsafe { env::set_var(pwsh_host::STARTUP_HOOK_MODULE_VENV_PATH_ENV_VAR, value) },
+            None => unsafe { env::remove_var(pwsh_host::STARTUP_HOOK_MODULE_VENV_PATH_ENV_VAR) },
         }
 
         match previous_strategy {
@@ -1795,17 +1795,17 @@ mod tests {
     }
 
     #[test]
-    fn configure_virtual_environment_host_env_sets_and_restores_unix_psmodulepath() {
+    fn configure_virtual_environment_host_env_sets_and_restores_unix_startup_hook_variables() {
         let _guard = ENV_LOCK.lock().unwrap();
         let temp_dir = tempfile::tempdir().unwrap();
         let forced_path = temp_dir.path().join("venv");
         fs::create_dir_all(&forced_path).unwrap();
 
-        let previous_forced_path = env::var_os(pwsh_host::STARTUP_HOOK_FORCE_MODULE_PATH_ENV_VAR);
+        let previous_forced_path = env::var_os(pwsh_host::STARTUP_HOOK_MODULE_VENV_PATH_ENV_VAR);
         let previous_strategy = env::var_os(pwsh_host::STARTUP_HOOK_STRATEGY_ENV_VAR);
 
         unsafe {
-            env::remove_var(pwsh_host::STARTUP_HOOK_FORCE_MODULE_PATH_ENV_VAR);
+            env::remove_var(pwsh_host::STARTUP_HOOK_MODULE_VENV_PATH_ENV_VAR);
             env::remove_var(pwsh_host::STARTUP_HOOK_STRATEGY_ENV_VAR);
         }
 
@@ -1813,8 +1813,8 @@ mod tests {
             let _guards = configure_virtual_environment_host_env(HostOs::Linux, &forced_path).unwrap();
             assert_eq!(
                 PathBuf::from(
-                    env::var_os(pwsh_host::STARTUP_HOOK_FORCE_MODULE_PATH_ENV_VAR)
-                        .expect("forced module path should be set")
+                    env::var_os(pwsh_host::STARTUP_HOOK_MODULE_VENV_PATH_ENV_VAR)
+                        .expect("module venv path should be set")
                 ),
                 forced_path
             );
@@ -1825,8 +1825,8 @@ mod tests {
         }
 
         match previous_forced_path {
-            Some(value) => unsafe { env::set_var(pwsh_host::STARTUP_HOOK_FORCE_MODULE_PATH_ENV_VAR, value) },
-            None => unsafe { env::remove_var(pwsh_host::STARTUP_HOOK_FORCE_MODULE_PATH_ENV_VAR) },
+            Some(value) => unsafe { env::set_var(pwsh_host::STARTUP_HOOK_MODULE_VENV_PATH_ENV_VAR, value) },
+            None => unsafe { env::remove_var(pwsh_host::STARTUP_HOOK_MODULE_VENV_PATH_ENV_VAR) },
         }
 
         match previous_strategy {

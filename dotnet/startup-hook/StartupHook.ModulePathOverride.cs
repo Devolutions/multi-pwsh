@@ -6,34 +6,37 @@ using System.Runtime.CompilerServices;
 public static partial class StartupHook
 {
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private static string GetModulePathReplacement()
+    private static string GetModuleVenvPathReplacement()
     {
-        return s_forcedModulePath ?? string.Empty;
+        return GetModuleVenvPath() ?? string.Empty;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static string GetEffectiveModulePathReplacement()
+    {
+        string effectiveModulePath = GetEffectivePsModulePath();
+        Environment.SetEnvironmentVariable("PSModulePath", effectiveModulePath);
+        return effectiveModulePath;
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static string GetConfigModulePathReplacement(object powerShellConfig, int scope)
     {
-        return s_forcedModulePath ?? string.Empty;
+        return GetModuleVenvPath() ?? string.Empty;
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static IEnumerable<string> GetEnumeratedModulePathReplacement(bool includeSystemModulePath, object context)
     {
         var yieldedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        string? forcedPath = s_forcedModulePath;
+        string? moduleVenvPath = GetModuleVenvPath();
 
-        if (!string.IsNullOrWhiteSpace(forcedPath) && yieldedPaths.Add(forcedPath))
+        if (!string.IsNullOrWhiteSpace(moduleVenvPath) && yieldedPaths.Add(moduleVenvPath))
         {
-            yield return forcedPath;
+            yield return moduleVenvPath;
         }
 
-        Assembly sma = Assembly.Load("System.Management.Automation");
-        Type moduleIntrinsics = sma.GetType("System.Management.Automation.ModuleIntrinsics", throwOnError: true)!;
-        MethodInfo getPsHomeModulePath = moduleIntrinsics.GetMethod(
-            "GetPSHomeModulePath",
-            BindingFlags.Static | BindingFlags.NonPublic)!;
-        string? psHomeModulePath = getPsHomeModulePath.Invoke(null, null) as string;
+        string? psHomeModulePath = GetPsHomeModulesPath();
 
         if (!string.IsNullOrWhiteSpace(psHomeModulePath) && yieldedPaths.Add(psHomeModulePath))
         {
@@ -55,11 +58,26 @@ public static partial class StartupHook
             binder: null,
             types: new[] { typeof(bool), sma.GetType("System.Management.Automation.ExecutionContext", throwOnError: true)! },
             modifiers: null)!;
+        MethodInfo setModulePath = moduleIntrinsics.GetMethod(
+            "SetModulePath",
+            BindingFlags.Static | BindingFlags.NonPublic,
+            binder: null,
+            types: Type.EmptyTypes,
+            modifiers: null)!;
+        MethodInfo getComposedModulePath = moduleIntrinsics.GetMethod(
+            "GetModulePath",
+            BindingFlags.Static | BindingFlags.Public,
+            binder: null,
+            types: new[] { typeof(string), typeof(string), typeof(string) },
+            modifiers: null)!;
         MethodInfo pathReplacement = typeof(StartupHook).GetMethod(
-            nameof(GetModulePathReplacement),
+            nameof(GetModuleVenvPathReplacement),
             BindingFlags.NonPublic | BindingFlags.Static)!;
         MethodInfo enumeratedPathReplacement = typeof(StartupHook).GetMethod(
             nameof(GetEnumeratedModulePathReplacement),
+            BindingFlags.NonPublic | BindingFlags.Static)!;
+        MethodInfo effectiveModulePathReplacement = typeof(StartupHook).GetMethod(
+            nameof(GetEffectiveModulePathReplacement),
             BindingFlags.NonPublic | BindingFlags.Static)!;
 
         Type configScope = sma.GetType("System.Management.Automation.Configuration.ConfigScope", throwOnError: true)!;
@@ -77,6 +95,8 @@ public static partial class StartupHook
         PatchMethod(getPersonalModulePath, pathReplacement);
         PatchMethod(getSharedModulePath, pathReplacement);
         PatchMethod(getEnumeratedModulePath, enumeratedPathReplacement);
+        PatchMethod(setModulePath, effectiveModulePathReplacement);
+        PatchMethod(getComposedModulePath, effectiveModulePathReplacement);
         PatchMethod(getConfigModulePath, configReplacement);
     }
 }

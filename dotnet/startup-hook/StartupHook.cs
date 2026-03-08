@@ -9,7 +9,8 @@ using System.Threading;
 
 public static partial class StartupHook
 {
-    private const string ForceModulePathProperty = "PWSH_STARTUP_HOOK_FORCE_PSMODULEPATH";
+    private const string ModuleVenvPathProperty = "PSMODULE_VENV_PATH";
+    private const string LegacyForceModulePathProperty = "PWSH_STARTUP_HOOK_FORCE_PSMODULEPATH";
     private const string LogPathProperty = "PWSH_STARTUP_HOOK_LOG_PATH";
     private const string StrategyProperty = "PWSH_STARTUP_HOOK_STRATEGY";
     private const string PowerShellGetPatchHelperName = "__PWSH_HOST_PATCH_POWERSHELLGET_VENV";
@@ -24,13 +25,17 @@ public static partial class StartupHook
     private const string InstallPSResourceWrapperName = "Install-PSResource";
     private const string GetInstalledPSResourceWrapperName = "Get-InstalledPSResource";
 
-    private static string? s_forcedModulePath;
+    private static string? s_moduleVenvPath;
     private static string? s_logPath;
     private static string? s_strategy;
 
-    private static string GetSeededPsModulePath()
+    private static string? GetModuleVenvPath()
     {
-        string forcedModulePath = s_forcedModulePath ?? string.Empty;
+        return string.IsNullOrWhiteSpace(s_moduleVenvPath) ? null : s_moduleVenvPath;
+    }
+
+    private static string GetPsHomeModulesPath()
+    {
         string psHomeModulesPath;
         try
         {
@@ -45,26 +50,36 @@ public static partial class StartupHook
             psHomeModulesPath = Path.Combine(AppContext.BaseDirectory, "Modules");
         }
 
-        if (string.IsNullOrWhiteSpace(forcedModulePath))
+        return psHomeModulesPath;
+    }
+
+    private static string GetEffectivePsModulePath()
+    {
+        string? moduleVenvPath = GetModuleVenvPath();
+        string psHomeModulesPath = GetPsHomeModulesPath();
+
+        if (string.IsNullOrWhiteSpace(moduleVenvPath))
         {
             return psHomeModulesPath;
         }
 
         if (!Directory.Exists(psHomeModulesPath))
         {
-            return forcedModulePath;
+            return moduleVenvPath;
         }
 
-        return string.Join(Path.PathSeparator, new[] { forcedModulePath, psHomeModulesPath });
+        return string.Join(Path.PathSeparator, new[] { moduleVenvPath, psHomeModulesPath });
     }
 
     public static void Initialize()
     {
-        s_forcedModulePath = ReadConfigurationValue(ForceModulePathProperty);
+        s_moduleVenvPath = ReadConfigurationValue(ModuleVenvPathProperty)
+            ?? ReadConfigurationValue(LegacyForceModulePathProperty);
         s_logPath = ReadConfigurationValue(LogPathProperty);
         s_strategy = ReadConfigurationValue(StrategyProperty);
 
         Environment.SetEnvironmentVariable("DOTNET_STARTUP_HOOKS", null);
+        Environment.SetEnvironmentVariable("PSMODULE_VENV_PATH", null);
         Environment.SetEnvironmentVariable("PWSH_STARTUP_HOOK_FORCE_PSMODULEPATH", null);
         Environment.SetEnvironmentVariable("PWSH_STARTUP_HOOK_LOG_PATH", null);
         Environment.SetEnvironmentVariable("PWSH_STARTUP_HOOK_STRATEGY", null);
@@ -73,9 +88,9 @@ public static partial class StartupHook
         {
             WriteLog($"startup hook entered; initial PSModulePath={Environment.GetEnvironmentVariable("PSModulePath")}");
 
-            if (string.IsNullOrWhiteSpace(s_forcedModulePath))
+            if (string.IsNullOrWhiteSpace(s_moduleVenvPath))
             {
-                WriteLog("no forced module path provided");
+                WriteLog("no module venv path provided");
                 return;
             }
 
@@ -89,12 +104,12 @@ public static partial class StartupHook
             Type moduleIntrinsics = sma.GetType("System.Management.Automation.ModuleIntrinsics", throwOnError: true)!;
 
             ConfigureModulePathOverride(sma, moduleIntrinsics);
-            Environment.SetEnvironmentVariable("PSModulePath", GetSeededPsModulePath());
+            Environment.SetEnvironmentVariable("PSModulePath", GetEffectivePsModulePath());
             RuntimeHelpers.RunClassConstructor(moduleIntrinsics.TypeHandle);
             WriteLog($"configured module-path override; rewritten PSModulePath={Environment.GetEnvironmentVariable("PSModulePath")}");
             BeginModuleManagementCommandOverrides();
 
-            Environment.SetEnvironmentVariable("PSModulePath", GetSeededPsModulePath());
+            Environment.SetEnvironmentVariable("PSModulePath", GetEffectivePsModulePath());
             WriteLog($"pre-seeded PSModulePath={Environment.GetEnvironmentVariable("PSModulePath")}");
         }
         catch (Exception ex)
@@ -203,18 +218,18 @@ public static partial class StartupHook
             types: new[] { typeof(string), typeof(string), typeof(ScopedItemOptions), typeof(bool), typeof(CommandOrigin) },
             modifiers: null)!;
 
-        string escapedForcedModulePath = (s_forcedModulePath ?? string.Empty).Replace("'", "''", StringComparison.Ordinal);
-        InstallFunction(setFunction, sessionState, PowerShellGetPatchHelperName, BuildPowerShellGetPatchHelperScript(escapedForcedModulePath));
-        InstallFunction(setFunction, sessionState, VenvInstalledModuleHelperName, BuildVenvInstalledModuleHelperScript(escapedForcedModulePath));
-        InstallFunction(setFunction, sessionState, VenvInstalledPSResourceHelperName, BuildVenvInstalledPSResourceHelperScript(escapedForcedModulePath));
-        InstallFunction(setFunction, sessionState, InstallModuleWrapperHelperName, BuildInstallModuleWrapperScript(escapedForcedModulePath));
-        InstallFunction(setFunction, sessionState, GetInstalledModuleWrapperHelperName, BuildGetInstalledModuleWrapperScript(escapedForcedModulePath));
-        InstallFunction(setFunction, sessionState, InstallPSResourceWrapperHelperName, BuildInstallPSResourceWrapperScript(escapedForcedModulePath));
-        InstallFunction(setFunction, sessionState, GetInstalledPSResourceWrapperHelperName, BuildGetInstalledPSResourceWrapperScript(escapedForcedModulePath));
-        InstallFunction(setFunction, sessionState, InstallModuleWrapperName, BuildInstallModuleWrapperScript(escapedForcedModulePath));
-        InstallFunction(setFunction, sessionState, GetInstalledModuleWrapperName, BuildGetInstalledModuleWrapperScript(escapedForcedModulePath));
-        InstallFunction(setFunction, sessionState, InstallPSResourceWrapperName, BuildInstallPSResourceWrapperScript(escapedForcedModulePath));
-        InstallFunction(setFunction, sessionState, GetInstalledPSResourceWrapperName, BuildGetInstalledPSResourceWrapperScript(escapedForcedModulePath));
+        string escapedModuleVenvPath = (s_moduleVenvPath ?? string.Empty).Replace("'", "''", StringComparison.Ordinal);
+        InstallFunction(setFunction, sessionState, PowerShellGetPatchHelperName, BuildPowerShellGetPatchHelperScript(escapedModuleVenvPath));
+        InstallFunction(setFunction, sessionState, VenvInstalledModuleHelperName, BuildVenvInstalledModuleHelperScript(escapedModuleVenvPath));
+        InstallFunction(setFunction, sessionState, VenvInstalledPSResourceHelperName, BuildVenvInstalledPSResourceHelperScript(escapedModuleVenvPath));
+        InstallFunction(setFunction, sessionState, InstallModuleWrapperHelperName, BuildInstallModuleWrapperScript(escapedModuleVenvPath));
+        InstallFunction(setFunction, sessionState, GetInstalledModuleWrapperHelperName, BuildGetInstalledModuleWrapperScript(escapedModuleVenvPath));
+        InstallFunction(setFunction, sessionState, InstallPSResourceWrapperHelperName, BuildInstallPSResourceWrapperScript(escapedModuleVenvPath));
+        InstallFunction(setFunction, sessionState, GetInstalledPSResourceWrapperHelperName, BuildGetInstalledPSResourceWrapperScript(escapedModuleVenvPath));
+        InstallFunction(setFunction, sessionState, InstallModuleWrapperName, BuildInstallModuleWrapperScript(escapedModuleVenvPath));
+        InstallFunction(setFunction, sessionState, GetInstalledModuleWrapperName, BuildGetInstalledModuleWrapperScript(escapedModuleVenvPath));
+        InstallFunction(setFunction, sessionState, InstallPSResourceWrapperName, BuildInstallPSResourceWrapperScript(escapedModuleVenvPath));
+        InstallFunction(setFunction, sessionState, GetInstalledPSResourceWrapperName, BuildGetInstalledPSResourceWrapperScript(escapedModuleVenvPath));
         InstallAlias(setAliasValue, sessionState, InstallModuleWrapperName, InstallModuleWrapperHelperName);
         InstallAlias(setAliasValue, sessionState, GetInstalledModuleWrapperName, GetInstalledModuleWrapperHelperName);
         InstallAlias(setAliasValue, sessionState, InstallPSResourceWrapperName, InstallPSResourceWrapperHelperName);
