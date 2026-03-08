@@ -9,8 +9,24 @@ public static partial class StartupHook
 param()
 
 $forcedModulePath = '{{escapedForcedModulePath}}'
-Microsoft.PowerShell.Core\Import-Module PowerShellGet -Scope Local -ErrorAction Stop | Out-Null
-$module = Microsoft.PowerShell.Core\Get-Module PowerShellGet -ErrorAction Stop
+$module = Microsoft.PowerShell.Core\Get-Module PowerShellGet -ErrorAction SilentlyContinue | Microsoft.PowerShell.Utility\Select-Object -First 1
+if (-not $module) {
+    $smaAssemblyDirectory = Microsoft.PowerShell.Management\Split-Path -Parent ([System.Management.Automation.PSObject].Assembly.Location)
+    $bundledPackageManagementManifest = Microsoft.PowerShell.Management\Join-Path $smaAssemblyDirectory 'Modules/PackageManagement/PackageManagement.psd1'
+    $bundledPowerShellGetManifest = Microsoft.PowerShell.Management\Join-Path $smaAssemblyDirectory 'Modules/PowerShellGet/PowerShellGet.psd1'
+    if (-not (Microsoft.PowerShell.Core\Get-Module PackageManagement -ErrorAction SilentlyContinue | Microsoft.PowerShell.Utility\Select-Object -First 1)) {
+        if (Microsoft.PowerShell.Management\Test-Path $bundledPackageManagementManifest -PathType Leaf) {
+            Microsoft.PowerShell.Core\Import-Module $bundledPackageManagementManifest -Scope Local -ErrorAction Stop | Out-Null
+        }
+    }
+    if (Microsoft.PowerShell.Management\Test-Path $bundledPowerShellGetManifest -PathType Leaf) {
+        Microsoft.PowerShell.Core\Import-Module $bundledPowerShellGetManifest -Scope Local -ErrorAction Stop | Out-Null
+    }
+    else {
+        Microsoft.PowerShell.Core\Import-Module PowerShellGet -Scope Local -ErrorAction Stop | Out-Null
+    }
+    $module = Microsoft.PowerShell.Core\Get-Module PowerShellGet -ErrorAction Stop | Microsoft.PowerShell.Utility\Select-Object -First 1
+}
 $sessionState = $module.SessionState
 $currentUserModules = $sessionState.PSVariable.GetValue('MyDocumentsModulesPath')
 if ([string]::Equals($currentUserModules, $forcedModulePath, [System.StringComparison]::OrdinalIgnoreCase)) {
@@ -740,11 +756,18 @@ begin
     & {{PowerShellGetPatchHelperName}}
     $forcedModulePath = '{{escapedForcedModulePath}}'
     $forcedModulePathPrefix = $forcedModulePath.TrimEnd([char[]]@([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)) + [System.IO.Path]::DirectorySeparatorChar
+    $nativeParameters = @{}
+    foreach ($entry in $PSBoundParameters.GetEnumerator()) {
+        if ($entry.Key -ne 'ErrorAction') {
+            $nativeParameters[$entry.Key] = $entry.Value
+        }
+    }
+    $nativeParameters['ErrorAction'] = 'SilentlyContinue'
 }
 
 process
 {
-    $powerShellGetResults = @(PowerShellGet\Get-InstalledModule @PSBoundParameters | Microsoft.PowerShell.Core\Where-Object {
+    $powerShellGetResults = @(PowerShellGet\Get-InstalledModule @nativeParameters | Microsoft.PowerShell.Core\Where-Object {
         $installedLocation = $_.InstalledLocation
         $installedLocation -and (
             [string]::Equals($installedLocation, $forcedModulePath, [System.StringComparison]::OrdinalIgnoreCase) -or

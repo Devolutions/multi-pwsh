@@ -15,6 +15,10 @@ public static partial class StartupHook
     private const string PowerShellGetPatchHelperName = "__PWSH_HOST_PATCH_POWERSHELLGET_VENV";
     private const string VenvInstalledModuleHelperName = "__PWSH_HOST_GET_VENV_INSTALLED_MODULE";
     private const string VenvInstalledPSResourceHelperName = "__PWSH_HOST_GET_VENV_INSTALLED_PSRESOURCE";
+    private const string InstallModuleWrapperHelperName = "__PWSH_HOST_INSTALL_MODULE_WRAPPER";
+    private const string GetInstalledModuleWrapperHelperName = "__PWSH_HOST_GET_INSTALLED_MODULE_WRAPPER";
+    private const string InstallPSResourceWrapperHelperName = "__PWSH_HOST_INSTALL_PSRESOURCE_WRAPPER";
+    private const string GetInstalledPSResourceWrapperHelperName = "__PWSH_HOST_GET_INSTALLED_PSRESOURCE_WRAPPER";
     private const string InstallModuleWrapperName = "Install-Module";
     private const string GetInstalledModuleWrapperName = "Get-InstalledModule";
     private const string InstallPSResourceWrapperName = "Install-PSResource";
@@ -23,6 +27,36 @@ public static partial class StartupHook
     private static string? s_forcedModulePath;
     private static string? s_logPath;
     private static string? s_strategy;
+
+    private static string GetSeededPsModulePath()
+    {
+        string forcedModulePath = s_forcedModulePath ?? string.Empty;
+        string psHomeModulesPath;
+        try
+        {
+            string smaLocation = Assembly.Load("System.Management.Automation").Location;
+            string? smaDirectory = Path.GetDirectoryName(smaLocation);
+            psHomeModulesPath = string.IsNullOrWhiteSpace(smaDirectory)
+                ? Path.Combine(AppContext.BaseDirectory, "Modules")
+                : Path.Combine(smaDirectory, "Modules");
+        }
+        catch
+        {
+            psHomeModulesPath = Path.Combine(AppContext.BaseDirectory, "Modules");
+        }
+
+        if (string.IsNullOrWhiteSpace(forcedModulePath))
+        {
+            return psHomeModulesPath;
+        }
+
+        if (!Directory.Exists(psHomeModulesPath))
+        {
+            return forcedModulePath;
+        }
+
+        return string.Join(Path.PathSeparator, new[] { forcedModulePath, psHomeModulesPath });
+    }
 
     public static void Initialize()
     {
@@ -55,12 +89,12 @@ public static partial class StartupHook
             Type moduleIntrinsics = sma.GetType("System.Management.Automation.ModuleIntrinsics", throwOnError: true)!;
 
             ConfigureModulePathOverride(sma, moduleIntrinsics);
-            Environment.SetEnvironmentVariable("PSModulePath", s_forcedModulePath);
+            Environment.SetEnvironmentVariable("PSModulePath", GetSeededPsModulePath());
             RuntimeHelpers.RunClassConstructor(moduleIntrinsics.TypeHandle);
             WriteLog($"configured module-path override; rewritten PSModulePath={Environment.GetEnvironmentVariable("PSModulePath")}");
             BeginModuleManagementCommandOverrides();
 
-            Environment.SetEnvironmentVariable("PSModulePath", s_forcedModulePath);
+            Environment.SetEnvironmentVariable("PSModulePath", GetSeededPsModulePath());
             WriteLog($"pre-seeded PSModulePath={Environment.GetEnvironmentVariable("PSModulePath")}");
         }
         catch (Exception ex)
@@ -162,20 +196,42 @@ public static partial class StartupHook
             binder: null,
             types: new[] { typeof(string), typeof(ScriptBlock), typeof(bool) },
             modifiers: null)!;
+        MethodInfo setAliasValue = sessionState.GetType().GetMethod(
+            "SetAliasValue",
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+            binder: null,
+            types: new[] { typeof(string), typeof(string), typeof(ScopedItemOptions), typeof(bool), typeof(CommandOrigin) },
+            modifiers: null)!;
 
         string escapedForcedModulePath = (s_forcedModulePath ?? string.Empty).Replace("'", "''", StringComparison.Ordinal);
         InstallFunction(setFunction, sessionState, PowerShellGetPatchHelperName, BuildPowerShellGetPatchHelperScript(escapedForcedModulePath));
         InstallFunction(setFunction, sessionState, VenvInstalledModuleHelperName, BuildVenvInstalledModuleHelperScript(escapedForcedModulePath));
         InstallFunction(setFunction, sessionState, VenvInstalledPSResourceHelperName, BuildVenvInstalledPSResourceHelperScript(escapedForcedModulePath));
+        InstallFunction(setFunction, sessionState, InstallModuleWrapperHelperName, BuildInstallModuleWrapperScript(escapedForcedModulePath));
+        InstallFunction(setFunction, sessionState, GetInstalledModuleWrapperHelperName, BuildGetInstalledModuleWrapperScript(escapedForcedModulePath));
+        InstallFunction(setFunction, sessionState, InstallPSResourceWrapperHelperName, BuildInstallPSResourceWrapperScript(escapedForcedModulePath));
+        InstallFunction(setFunction, sessionState, GetInstalledPSResourceWrapperHelperName, BuildGetInstalledPSResourceWrapperScript(escapedForcedModulePath));
         InstallFunction(setFunction, sessionState, InstallModuleWrapperName, BuildInstallModuleWrapperScript(escapedForcedModulePath));
         InstallFunction(setFunction, sessionState, GetInstalledModuleWrapperName, BuildGetInstalledModuleWrapperScript(escapedForcedModulePath));
         InstallFunction(setFunction, sessionState, InstallPSResourceWrapperName, BuildInstallPSResourceWrapperScript(escapedForcedModulePath));
         InstallFunction(setFunction, sessionState, GetInstalledPSResourceWrapperName, BuildGetInstalledPSResourceWrapperScript(escapedForcedModulePath));
+        InstallAlias(setAliasValue, sessionState, InstallModuleWrapperName, InstallModuleWrapperHelperName);
+        InstallAlias(setAliasValue, sessionState, GetInstalledModuleWrapperName, GetInstalledModuleWrapperHelperName);
+        InstallAlias(setAliasValue, sessionState, InstallPSResourceWrapperName, InstallPSResourceWrapperHelperName);
+        InstallAlias(setAliasValue, sessionState, GetInstalledPSResourceWrapperName, GetInstalledPSResourceWrapperHelperName);
     }
 
     private static void InstallFunction(MethodInfo setFunction, object sessionState, string functionName, string script)
     {
         ScriptBlock scriptBlock = ScriptBlock.Create(script);
         _ = setFunction.Invoke(sessionState, new object[] { functionName, scriptBlock, true });
+    }
+
+    private static void InstallAlias(MethodInfo setAliasValue, object sessionState, string aliasName, string targetName)
+    {
+        _ = setAliasValue.Invoke(
+            sessionState,
+            new object[] { aliasName, targetName, ScopedItemOptions.AllScope, true, CommandOrigin.Internal }
+        );
     }
 }

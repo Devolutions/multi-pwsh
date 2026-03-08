@@ -9,16 +9,30 @@
     <DiscoveredBindingsWrappersPath Condition="'$(DiscoveredBindingsWrappersPath)' == ''">$(MSBuildThisFileDirectory)obj\Bindings.Discovered.Generated.cs</DiscoveredBindingsWrappersPath>
     <BindingsContractPath Condition="'$(BindingsContractPath)' == ''">$(DiscoveredBindingsContractPath)</BindingsContractPath>
     <PwshExePath Condition="'$(PwshExePath)' == '' and Exists('C:\Program Files\PowerShell\7.4\pwsh.exe')">C:\Program Files\PowerShell\7.4\pwsh.exe</PwshExePath>
-    <PwshExePath Condition="'$(PwshExePath)' == ''">pwsh</PwshExePath>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="$(DiscoveredBindingsWrappersPath)" Visible="false" />
   </ItemGroup>
-  <Target Name="DiscoverBindings" BeforeTargets="BeforeBuild">
+  <Target Name="ResolvePwshExePath" Condition="'$(PwshExePath)' == ''">
+    <Exec Condition="'$(OS)' == 'Windows_NT'"
+          Command="where.exe pwsh-7.4 &gt;nul 2&gt;nul &amp;&amp; echo pwsh-7.4 || echo pwsh"
+          ConsoleToMsBuild="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="ResolvedPwshExePath" />
+    </Exec>
+    <Exec Condition="'$(OS)' != 'Windows_NT'"
+          Command="command -v pwsh-7.4 &gt;/dev/null 2&gt;&amp;1 &amp;&amp; printf 'pwsh-7.4' || printf 'pwsh'"
+          ConsoleToMsBuild="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="ResolvedPwshExePath" />
+    </Exec>
+    <PropertyGroup>
+      <PwshExePath>$([System.String]::Copy('$(ResolvedPwshExePath)').Trim())</PwshExePath>
+    </PropertyGroup>
+  </Target>
+  <Target Name="DiscoverBindings" BeforeTargets="BeforeBuild" DependsOnTargets="ResolvePwshExePath">
     <Message Importance="High" Text="DiscoverBindings using $(PwshExePath)" />
     <Exec Command="&quot;$(PwshExePath)&quot; -NoLogo -NoProfile -File &quot;$(MSBuildThisFileDirectory)..\..\scripts\Discover-Bindings.ps1&quot; -OutSurfacePath &quot;$(DiscoveredBindingsSurfacePath)&quot; -OutContractPath &quot;$(DiscoveredBindingsContractPath)&quot; -OutCSharpWrappersPath &quot;$(DiscoveredBindingsWrappersPath)&quot; -BindingAssemblyName &quot;$(AssemblyName)&quot;" />
   </Target>
-  <Target Name="GenerateBindings" BeforeTargets="BeforeBuild" DependsOnTargets="DiscoverBindings">
+  <Target Name="GenerateBindings" BeforeTargets="BeforeBuild" DependsOnTargets="ResolvePwshExePath;DiscoverBindings">
     <Message Importance="High" Text="GenerateBindings using $(PwshExePath) and contract $(BindingsContractPath)" />
     <Exec Command="&quot;$(PwshExePath)&quot; -NoLogo -NoProfile -File &quot;$(MSBuildThisFileDirectory)..\..\scripts\Generate-Bindings.ps1&quot; -ContractPath &quot;$(BindingsContractPath)&quot; -CSharpOutputPath &quot;$(MSBuildThisFileDirectory)Bindings.Generated.cs&quot; -RustOutputPath &quot;$(MSBuildThisFileDirectory)..\..\crates\pwsh-host\src\bindings\bindings_generated.rs&quot;" />
   </Target>

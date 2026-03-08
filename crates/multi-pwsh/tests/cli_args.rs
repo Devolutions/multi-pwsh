@@ -1,4 +1,6 @@
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
 use std::process::{Command, Output};
 
 use serde_json::Value;
@@ -37,6 +39,35 @@ fn run_multi_pwsh(args: &[&str], home: &std::path::Path) -> std::process::Output
         .args(args)
         .output()
         .expect("failed to run multi-pwsh test binary")
+}
+
+fn run_multi_pwsh_with_stdin(args: &[&str], home: &Path, stdin_text: &str) -> Output {
+    let exe = find_multi_pwsh_binary();
+    assert!(
+        exe.exists(),
+        "failed to locate multi-pwsh test binary at {}",
+        exe.display()
+    );
+
+    let mut child = Command::new(exe)
+        .env("MULTI_PWSH_HOME", home)
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to start multi-pwsh test binary");
+
+    child
+        .stdin
+        .as_mut()
+        .expect("stdin should be piped")
+        .write_all(stdin_text.as_bytes())
+        .expect("failed to write stdin to multi-pwsh test binary");
+
+    child
+        .wait_with_output()
+        .expect("failed to wait for multi-pwsh test binary")
 }
 
 fn normalize_output(bytes: &[u8]) -> String {
@@ -174,6 +205,76 @@ fn query_single_module_bases(home: &Path, selector: &str, venv: &str, module_nam
     let parsed: Value =
         serde_json::from_str(&normalize_output(&output.stdout)).expect("failed to parse module base JSON");
     json_strings(&parsed, "ModuleBases")
+}
+
+fn query_venv_runtime_paths(home: &Path, selector: &str, venv: &str) -> Value {
+    let command = "Import-Module PowerShellGet -ErrorAction Stop; \
+        $powerShellGet = Get-Module PowerShellGet -ErrorAction Stop; \
+        $result = [ordered]@{ \
+            EnvPSModulePath = $env:PSModulePath; \
+            PowerShellGetCurrentUserModules = $powerShellGet.SessionState.PSVariable.GetValue('MyDocumentsModulesPath'); \
+            PowerShellGetPsGetPathCurrentUser = (($powerShellGet.SessionState.PSVariable.GetValue('PSGetPath')).CurrentUserModules) \
+        }; \
+        $result | ConvertTo-Json -Compress";
+
+    let output = run_multi_pwsh(
+        &[
+            "host",
+            selector,
+            "-venv",
+            venv,
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            command,
+        ],
+        home,
+    );
+
+    assert!(
+        output.status.success(),
+        "failed to query venv runtime paths through multi-pwsh host: {}",
+        normalize_output(&output.stderr)
+    );
+
+    serde_json::from_str(&normalize_output(&output.stdout)).expect("failed to parse venv runtime path JSON")
+}
+
+fn query_installed_module_location_after_powershellget_import(
+    home: &Path,
+    selector: &str,
+    venv: &str,
+    module_name: &str,
+) -> String {
+    let command = format!(
+        "Import-Module PowerShellGet -ErrorAction Stop; \
+         Get-InstalledModule {} -ErrorAction Stop | Select-Object -First 1 -ExpandProperty InstalledLocation",
+        quote_pwsh_literal(module_name)
+    );
+
+    let output = run_multi_pwsh(
+        &[
+            "host",
+            selector,
+            "-venv",
+            venv,
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            &command,
+        ],
+        home,
+    );
+
+    assert!(
+        output.status.success(),
+        "failed to query installed module after PowerShellGet import: {}",
+        normalize_output(&output.stderr)
+    );
+
+    normalize_output(&output.stdout)
 }
 
 fn json_strings(value: &Value, key: &str) -> Vec<String> {
@@ -497,5 +598,108 @@ fn host_venv_isolates_psgallery_modules() {
         !output_contains_module_base_under(&yaml_bases_from_toml, &yaml_root),
         "did not expect Yayaml from yaml venv to leak into toml venv, got {:?}",
         yaml_bases_from_toml
+    );
+}
+
+#[test]
+fn host_venv_rewrites_powershellget_current_user_module_path() {
+    let temp_dir = TempDir::new().expect("failed to create temp dir");
+    let (version, pwsh_install_dir) = discover_pwsh_install();
+
+    let managed_version_dir = temp_dir.path().join("multi").join(&version);
+    std::fs::create_dir_all(managed_version_dir.parent().expect("missing version dir parent"))
+        .expect("failed to create managed multi dir");
+    link_directory(&managed_version_dir, &pwsh_install_dir);
+
+    let output = run_multi_pwsh(&["venv", "create", "msgraph"], temp_dir.path());
+    assert!(
+        output.status.success(),
+        "failed to create venv: {}",
+        normalize_output(&output.stderr)
+    );
+
+    let venv_root = temp_dir.path().join("venv").join("msgraph");
+    let runtime_paths = query_venv_runtime_paths(temp_dir.path(), &version, "msgraph");
+    let expected = venv_root.to_string_lossy().to_string();
+
+    assert!(runtime_paths["EnvPSModulePath"]
+        .as_str()
+        .expect("expected EnvPSModulePath string")
+        .starts_with(&expected));
+    assert_eq!(
+        runtime_paths["PowerShellGetCurrentUserModules"].as_str(),
+        Some(expected.as_str())
+    );
+    assert_eq!(
+        runtime_paths["PowerShellGetPsGetPathCurrentUser"].as_str(),
+        Some(expected.as_str())
+    );
+}
+
+#[test]
+fn host_venv_import_module_powershellget_keeps_get_installed_module_venv_aware() {
+    let temp_dir = TempDir::new().expect("failed to create temp dir");
+    let (version, pwsh_install_dir) = discover_pwsh_install();
+
+    let managed_version_dir = temp_dir.path().join("multi").join(&version);
+    std::fs::create_dir_all(managed_version_dir.parent().expect("missing version dir parent"))
+        .expect("failed to create managed multi dir");
+    link_directory(&managed_version_dir, &pwsh_install_dir);
+
+    let output = run_multi_pwsh(&["venv", "create", "yaml"], temp_dir.path());
+    assert!(
+        output.status.success(),
+        "failed to create venv: {}",
+        normalize_output(&output.stderr)
+    );
+
+    let venv_root = temp_dir.path().join("venv").join("yaml");
+    save_gallery_module("Yayaml", &venv_root);
+
+    let installed_location =
+        query_installed_module_location_after_powershellget_import(temp_dir.path(), &version, "yaml", "Yayaml");
+
+    assert!(
+        output_contains_module_base_under(&[installed_location], &venv_root),
+        "expected explicit PowerShellGet import to preserve venv-installed module discovery"
+    );
+}
+
+#[test]
+fn host_venv_stdin_import_module_powershellget_keeps_get_installed_module_venv_aware() {
+    let temp_dir = TempDir::new().expect("failed to create temp dir");
+    let (version, pwsh_install_dir) = discover_pwsh_install();
+
+    let managed_version_dir = temp_dir.path().join("multi").join(&version);
+    std::fs::create_dir_all(managed_version_dir.parent().expect("missing version dir parent"))
+        .expect("failed to create managed multi dir");
+    link_directory(&managed_version_dir, &pwsh_install_dir);
+
+    let output = run_multi_pwsh(&["venv", "create", "yaml-stdin"], temp_dir.path());
+    assert!(
+        output.status.success(),
+        "failed to create venv: {}",
+        normalize_output(&output.stderr)
+    );
+
+    let venv_root = temp_dir.path().join("venv").join("yaml-stdin");
+    save_gallery_module("Yayaml", &venv_root);
+
+    let host_output = run_multi_pwsh_with_stdin(
+        &["host", &version, "-venv", "yaml-stdin", "-NoLogo", "-NoProfile", "-File", "-"],
+        temp_dir.path(),
+        "Import-Module PowerShellGet -ErrorAction Stop\nGet-InstalledModule Yayaml -ErrorAction Stop | Select-Object -First 1 -ExpandProperty InstalledLocation\n",
+    );
+
+    assert!(
+        host_output.status.success(),
+        "stdin-driven host launch failed: {}",
+        normalize_output(&host_output.stderr)
+    );
+
+    let stdout = normalize_output(&host_output.stdout);
+    assert!(
+        output_contains_module_base_under(&[stdout], &venv_root),
+        "expected stdin-driven PowerShellGet import to preserve venv-installed module discovery"
     );
 }
