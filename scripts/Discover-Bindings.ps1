@@ -9,7 +9,7 @@ param(
     [string]$OutCSharpWrappersPath = "$PSScriptRoot/../dotnet/bindings/obj/Bindings.Discovered.Generated.cs",
 
     [Parameter(Mandatory = $false)]
-    [string]$BindingAssemblyName = "Devolutions.PowerShell.Bindings",
+    [string]$BindingAssemblyName = "Devolutions.PowerShell.SDK.Bindings",
 
     [Parameter(Mandatory = $false)]
     [switch]$SkipVersionCheck

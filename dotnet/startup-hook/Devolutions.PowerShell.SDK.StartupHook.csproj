@@ -2,7 +2,7 @@
   <Import Project="..\Managed.Common.props" />
 
   <PropertyGroup>
-    <AssemblyName>Devolutions.PowerShell.StartupHook</AssemblyName>
+    <AssemblyName>Devolutions.PowerShell.SDK.StartupHook</AssemblyName>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>

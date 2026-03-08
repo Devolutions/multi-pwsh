@@ -137,7 +137,7 @@ fn run_shim_with_module_path_startup_hook(forced_module_path: &Path) -> Output {
         .join("pwsh-host-rs")
         .join(env!("CARGO_PKG_VERSION"))
         .join("startup-hooks")
-        .join("Devolutions.PowerShell.StartupHook.dll");
+        .join("Devolutions.PowerShell.SDK.StartupHook.dll");
     assert!(
         !extracted_hook_path.exists(),
         "startup hook should load from embedded bytes without extracting to {}",

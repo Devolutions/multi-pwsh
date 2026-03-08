@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <Import Project="..\Managed.Common.props" />
   <PropertyGroup>
-    <AssemblyName>Devolutions.PowerShell.Bindings</AssemblyName>
+    <AssemblyName>Devolutions.PowerShell.SDK.Bindings</AssemblyName>
     <EnableDynamicLoading>true</EnableDynamicLoading>
     <UseRidGraph>true</UseRidGraph>
     <DiscoveredBindingsContractPath Condition="'$(DiscoveredBindingsContractPath)' == ''">$(MSBuildThisFileDirectory)obj\bindings.ps74.discovered.contract.json</DiscoveredBindingsContractPath>

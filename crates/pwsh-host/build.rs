@@ -38,18 +38,32 @@ fn main() {
 
     let bindings_project = dotnet_dir
         .join("bindings")
-        .join("Devolutions.PowerShell.Bindings.csproj");
+        .join("Devolutions.PowerShell.SDK.Bindings.csproj");
     let managed_common_props = dotnet_dir.join("Managed.Common.props");
-    let bindings_source = dotnet_dir.join("bindings").join("Bindings.cs");
+    let bindings_sources = [
+        dotnet_dir.join("bindings").join("Bindings.cs"),
+        dotnet_dir.join("bindings").join("Bindings.Generated.cs"),
+    ];
     let startup_hook_project = dotnet_dir
         .join("startup-hook")
-        .join("Devolutions.PowerShell.StartupHook.csproj");
-    let startup_hook_source = dotnet_dir.join("startup-hook").join("StartupHook.cs");
+        .join("Devolutions.PowerShell.SDK.StartupHook.csproj");
+    let startup_hook_sources = [
+        dotnet_dir.join("startup-hook").join("StartupHook.cs"),
+        dotnet_dir.join("startup-hook").join("StartupHook.Scripts.cs"),
+        dotnet_dir
+            .join("startup-hook")
+            .join("StartupHook.ModulePathOverride.cs"),
+        dotnet_dir.join("startup-hook").join("StartupHook.NativePatch.cs"),
+    ];
 
     println!("cargo:rerun-if-changed={}", bindings_project.display());
-    println!("cargo:rerun-if-changed={}", bindings_source.display());
     println!("cargo:rerun-if-changed={}", startup_hook_project.display());
-    println!("cargo:rerun-if-changed={}", startup_hook_source.display());
+    for bindings_source in bindings_sources {
+        println!("cargo:rerun-if-changed={}", bindings_source.display());
+    }
+    for startup_hook_source in startup_hook_sources {
+        println!("cargo:rerun-if-changed={}", startup_hook_source.display());
+    }
     println!("cargo:rerun-if-changed={}", managed_common_props.display());
     println!(
         "cargo:rerun-if-changed={}",

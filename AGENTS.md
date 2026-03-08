@@ -11,7 +11,7 @@ This file is guidance for AI/code agents working in this repository.
 ## Baseline
 
 - .NET SDK pinned in `global.json` (currently `8.0.400` with `latestPatch` roll-forward).
-- .NET target framework is `net8.0` in `dotnet/bindings/Devolutions.PowerShell.Bindings.csproj`.
+- .NET target framework is `net8.0` in `dotnet/bindings/Devolutions.PowerShell.SDK.Bindings.csproj`.
 - Rust crate uses edition 2018.
 
 ## PR preparation policy (mandatory)
@@ -42,14 +42,14 @@ Run these after meaningful code changes, and before PR if those changes are part
 ```powershell
 cargo build --all-targets
 cargo test --all-targets
-dotnet build dotnet/bindings/Devolutions.PowerShell.Bindings.csproj
-dotnet test dotnet/bindings/Devolutions.PowerShell.Bindings.csproj --no-build
+dotnet build dotnet/bindings/Devolutions.PowerShell.SDK.Bindings.csproj
+dotnet test dotnet/bindings/Devolutions.PowerShell.SDK.Bindings.csproj --no-build
 ```
 
-If dependency changes are made in `dotnet/bindings/Devolutions.PowerShell.Bindings.csproj`, also run:
+If dependency changes are made in `dotnet/bindings/Devolutions.PowerShell.SDK.Bindings.csproj`, also run:
 
 ```powershell
-dotnet list dotnet/bindings/Devolutions.PowerShell.Bindings.csproj package --vulnerable --include-transitive
+dotnet list dotnet/bindings/Devolutions.PowerShell.SDK.Bindings.csproj package --vulnerable --include-transitive
 ```
 
 ## Project map
