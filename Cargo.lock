@@ -518,7 +518,7 @@ dependencies = [
 
 [[package]]
 name = "multi-pwsh"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "flate2",
  "home",
@@ -637,7 +637,7 @@ dependencies = [
 
 [[package]]
 name = "pwsh-host"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "base64 0.13.1",
  "cfg-if 0.1.10",
@@ -660,7 +660,7 @@ dependencies = [
 
 [[package]]
 name = "pwsh-host-cli"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "base64 0.22.1",
  "pwsh-host",

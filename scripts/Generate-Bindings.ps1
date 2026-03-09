@@ -1,9 +1,9 @@
 param(
     [Parameter(Mandatory = $false)]
-    [string]$ContractPath = "$PSScriptRoot/../dotnet/obj/bindings.ps74.discovered.contract.json",
+    [string]$ContractPath = "$PSScriptRoot/../dotnet/bindings/obj/bindings.ps74.discovered.contract.json",
 
     [Parameter(Mandatory = $false)]
-    [string]$CSharpOutputPath = "$PSScriptRoot/../dotnet/Bindings.Generated.cs",
+    [string]$CSharpOutputPath = "$PSScriptRoot/../dotnet/bindings/Bindings.Generated.cs",
 
     [Parameter(Mandatory = $false)]
     [string]$RustOutputPath = "$PSScriptRoot/../crates/pwsh-host/src/bindings/bindings_generated.rs"

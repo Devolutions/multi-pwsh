@@ -44,8 +44,13 @@ foreach ($cargoFile in $cargoFiles) {
         continue
     }
 
-    $replacement = $match.Groups[1].Value + $Version + $match.Groups[3].Value
-    $newContent = $content.Substring(0, $match.Index) + $replacement + $content.Substring($match.Index + $match.Length)
+    $newContent = [System.Text.RegularExpressions.Regex]::Replace(
+        $content,
+        $pattern,
+        ($match.Groups[1].Value + $Version + $match.Groups[3].Value),
+        [System.Text.RegularExpressions.RegexOptions]::Multiline -bor [System.Text.RegularExpressions.RegexOptions]::Singleline,
+        [System.TimeSpan]::FromSeconds(5)
+    )
 
     if (-not $DryRun) {
         [System.IO.File]::WriteAllText($cargoFile, $newContent, $encoding)

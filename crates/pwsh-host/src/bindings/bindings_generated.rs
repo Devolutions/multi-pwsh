@@ -181,7 +181,7 @@ impl Bindings {
         let get_api_fn: FnBindingsGetApiPs74 = {
             let fn_ptr = get_function_pointer(
                 fn_loader,
-                pdcstr!("NativeHost.Bindings, Bindings"),
+                pdcstr!("NativeHost.Bindings, Devolutions.PowerShell.SDK.Bindings"),
                 pdcstr!("Bindings_GetApiPS74"),
             )?;
             unsafe { std::mem::transmute(fn_ptr) }

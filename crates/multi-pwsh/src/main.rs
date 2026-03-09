@@ -9,7 +9,7 @@ mod versions;
 use std::env;
 use std::ffi::{OsStr, OsString};
 use std::fs;
-use std::io;
+use std::io::{self, Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process;
 
@@ -31,7 +31,6 @@ use versions::{
 
 const POWERSHELL_UPDATECHECK_ENV_VAR: &str = "POWERSHELL_UPDATECHECK";
 const POWERSHELL_UPDATECHECK_OFF: &str = "Off";
-const PSMODULEPATH_ENV_VAR: &str = "PSModulePath";
 const VIRTUAL_ENVIRONMENT_FLAG: &str = "-virtualenvironment";
 const VIRTUAL_ENVIRONMENT_SHORT_FLAG: &str = "-venv";
 
@@ -77,6 +76,18 @@ impl Drop for ProcessEnvVarGuard {
             None => unsafe { env::remove_var(self.key) },
         }
     }
+}
+
+fn configure_virtual_environment_host_env(os: HostOs, venv_dir: &Path) -> Result<Vec<ProcessEnvVarGuard>> {
+    let _ = os;
+
+    Ok(vec![
+        ProcessEnvVarGuard::set(pwsh_host::STARTUP_HOOK_MODULE_VENV_PATH_ENV_VAR, venv_dir.as_os_str()),
+        ProcessEnvVarGuard::set(
+            pwsh_host::STARTUP_HOOK_STRATEGY_ENV_VAR,
+            pwsh_host::MODULE_PATH_STRATEGY,
+        ),
+    ])
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -198,6 +209,101 @@ fn is_option_like(arg: &OsStr) -> bool {
     text.starts_with('-') || text.starts_with('/')
 }
 
+fn is_command_flag(arg: &OsStr) -> bool {
+    matches!(normalize_host_flag(arg).as_str(), "-command" | "-c" | "/command" | "/c")
+}
+
+fn is_file_flag(arg: &OsStr) -> bool {
+    matches!(normalize_host_flag(arg).as_str(), "-file" | "-f" | "/file" | "/f")
+}
+
+fn escape_single_quoted_pwsh_literal(value: &str) -> String {
+    value.replace('\'', "''")
+}
+
+fn virtual_environment_bootstrap_prelude() -> &'static str {
+    concat!(
+        "for ($__multiPwshAttempt = 0; $__multiPwshAttempt -lt 200; $__multiPwshAttempt++) { ",
+        "  $__multiPwshImportModule = Get-Command Import-Module -ErrorAction SilentlyContinue; ",
+        "  $__multiPwshInstalledModule = Get-Command Get-InstalledModule -ErrorAction SilentlyContinue; ",
+        "  $__multiPwshPsRepository = Get-Command Get-PSRepository -ErrorAction SilentlyContinue; ",
+        "  $__multiPwshInstalledPsResource = Get-Command Get-InstalledPSResource -ErrorAction SilentlyContinue; ",
+        "  if ($__multiPwshImportModule -and $__multiPwshImportModule.CommandType -eq 'Alias' -and ",
+        "      $__multiPwshInstalledModule -and $__multiPwshInstalledModule.CommandType -eq 'Alias' -and ",
+        "      $__multiPwshPsRepository -and $__multiPwshPsRepository.CommandType -eq 'Alias' -and ",
+        "      $__multiPwshInstalledPsResource -and $__multiPwshInstalledPsResource.CommandType -eq 'Alias') { break }; ",
+        "  Start-Sleep -Milliseconds 10; ",
+        "}; "
+    )
+}
+
+fn bootstrap_virtual_environment_command(command: &OsStr) -> OsString {
+    let escaped_command = escape_single_quoted_pwsh_literal(&command.to_string_lossy());
+    OsString::from(format!(
+        concat!(
+            "$__multiPwshUserCommand = '{}'; ",
+            "{}",
+            "& ([scriptblock]::Create($__multiPwshUserCommand))"
+        ),
+        escaped_command,
+        virtual_environment_bootstrap_prelude()
+    ))
+}
+
+fn inject_virtual_environment_command_bootstrap(args: Vec<OsString>) -> Vec<OsString> {
+    let mut rewritten = args;
+
+    for index in 0..rewritten.len() {
+        if !is_command_flag(rewritten[index].as_os_str()) {
+            continue;
+        }
+
+        let Some(command) = rewritten.get(index + 1).cloned() else {
+            break;
+        };
+
+        rewritten[index + 1] = bootstrap_virtual_environment_command(command.as_os_str());
+        break;
+    }
+
+    rewritten
+}
+
+fn rewrite_virtual_environment_stdin_file(args: Vec<OsString>) -> Result<(Vec<OsString>, Option<tempfile::TempPath>)> {
+    let mut rewritten = args;
+
+    for index in 0..rewritten.len() {
+        if !is_file_flag(rewritten[index].as_os_str()) {
+            continue;
+        }
+
+        let Some(file_target) = rewritten.get(index + 1) else {
+            break;
+        };
+
+        if file_target != OsStr::new("-") {
+            break;
+        }
+
+        let mut user_script = String::new();
+        io::stdin().read_to_string(&mut user_script)?;
+
+        let mut script_file = tempfile::Builder::new()
+            .prefix("multi-pwsh-venv-")
+            .suffix(".ps1")
+            .tempfile()?;
+        script_file.write_all(virtual_environment_bootstrap_prelude().as_bytes())?;
+        script_file.write_all(user_script.as_bytes())?;
+        script_file.flush()?;
+
+        let script_path = script_file.into_temp_path();
+        rewritten[index + 1] = script_path.as_os_str().to_os_string();
+        return Ok((rewritten, Some(script_path)));
+    }
+
+    Ok((rewritten, None))
+}
+
 fn extract_virtual_environment_arg(args: Vec<OsString>) -> Result<(Vec<OsString>, Option<String>)> {
     let mut virtual_environment_index = None;
     let mut virtual_environment_name = None;
@@ -243,6 +349,11 @@ fn extract_virtual_environment_arg(args: Vec<OsString>) -> Result<(Vec<OsString>
 
 fn preprocess_host_args(args: Vec<OsString>) -> Result<HostLaunchOptions> {
     let (args, virtual_environment) = extract_virtual_environment_arg(args)?;
+    let args = if virtual_environment.is_some() {
+        inject_virtual_environment_command_bootstrap(args)
+    } else {
+        args
+    };
     let pwsh_args = pwsh_host::preprocess_named_pipe_command_args(args)
         .map_err(|error| MultiPwshError::Host(format!("invalid host arguments: {}", error)))?;
 
@@ -418,13 +529,19 @@ fn run_host_mode(selector_input: &str, pwsh_args: Vec<OsString>) -> Result<i32> 
         pwsh_args,
         virtual_environment,
     } = preprocess_host_args(pwsh_args)?;
+    let (pwsh_args, _stdin_script_file) = if virtual_environment.is_some() {
+        rewrite_virtual_environment_stdin_file(pwsh_args)?
+    } else {
+        (pwsh_args, None)
+    };
     disable_powershell_update_notifications();
 
-    let _virtual_environment_guard = virtual_environment
+    let _virtual_environment_guards = virtual_environment
         .as_deref()
         .map(|name| resolve_virtual_environment_dir(&layout, name))
         .transpose()?
-        .map(|venv_dir| ProcessEnvVarGuard::set(PSMODULEPATH_ENV_VAR, venv_dir.as_os_str()));
+        .map(|venv_dir| configure_virtual_environment_host_env(os, &venv_dir))
+        .transpose()?;
 
     pwsh_host::run_pwsh_command_line_for_pwsh_exe(&executable, pwsh_args).map_err(|error| {
         MultiPwshError::Host(format!(
@@ -470,9 +587,7 @@ fn detect_implicit_host_selector(bin_dir: &Path, executable_path: &Path) -> Opti
         return None;
     }
 
-    if parse_alias_command_selector(&selector).is_none() {
-        return None;
-    }
+    parse_alias_command_selector(&selector)?;
 
     let parent = executable_path.parent()?;
     if !paths_refer_to_same_location(parent, bin_dir) {
@@ -1574,15 +1689,131 @@ mod tests {
     }
 
     #[test]
+    fn preprocess_host_args_bootstraps_command_when_virtual_environment_is_present() {
+        let args = vec![
+            OsString::from("-venv"),
+            OsString::from("msgraph"),
+            OsString::from("-Command"),
+            OsString::from("Get-InstalledModule Pester"),
+        ];
+
+        let options = preprocess_host_args(args).unwrap();
+        assert_eq!(options.virtual_environment, Some("msgraph".to_string()));
+        assert_eq!(options.pwsh_args.len(), 2);
+        assert_eq!(options.pwsh_args[0], OsString::from("-Command"));
+
+        let command = options.pwsh_args[1].to_string_lossy();
+        assert!(command.contains("Get-Command Import-Module -ErrorAction SilentlyContinue"));
+        assert!(command.contains("$__multiPwshImportModule.CommandType -eq 'Alias'"));
+        assert!(command.contains("Get-InstalledModule Pester"));
+    }
+
+    #[test]
+    fn preprocess_host_args_preserves_stdin_file_when_virtual_environment_is_present() {
+        let args = vec![
+            OsString::from("-venv"),
+            OsString::from("msgraph"),
+            OsString::from("-File"),
+            OsString::from("-"),
+        ];
+
+        let options = preprocess_host_args(args).unwrap();
+        assert_eq!(options.virtual_environment, Some("msgraph".to_string()));
+        assert_eq!(options.pwsh_args, vec![OsString::from("-File"), OsString::from("-")]);
+    }
+
+    #[test]
     fn process_env_var_guard_restores_previous_value() {
-        with_env_var(PSMODULEPATH_ENV_VAR, Some("original"), || {
+        with_env_var("PSModulePath", Some("original"), || {
             {
-                let _guard = ProcessEnvVarGuard::set(PSMODULEPATH_ENV_VAR, "override");
-                assert_eq!(env::var(PSMODULEPATH_ENV_VAR).unwrap(), "override");
+                let _guard = ProcessEnvVarGuard::set("PSModulePath", "override");
+                assert_eq!(env::var("PSModulePath").unwrap(), "override");
             }
 
-            assert_eq!(env::var(PSMODULEPATH_ENV_VAR).unwrap(), "original");
+            assert_eq!(env::var("PSModulePath").unwrap(), "original");
         });
+    }
+
+    #[test]
+    fn configure_virtual_environment_host_env_sets_and_restores_windows_startup_hook_variables() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let temp_dir = tempfile::tempdir().unwrap();
+        let forced_path = temp_dir.path().join("venv");
+        fs::create_dir_all(&forced_path).unwrap();
+
+        let previous_forced_path = env::var_os(pwsh_host::STARTUP_HOOK_MODULE_VENV_PATH_ENV_VAR);
+        let previous_strategy = env::var_os(pwsh_host::STARTUP_HOOK_STRATEGY_ENV_VAR);
+
+        unsafe {
+            env::remove_var(pwsh_host::STARTUP_HOOK_MODULE_VENV_PATH_ENV_VAR);
+            env::remove_var(pwsh_host::STARTUP_HOOK_STRATEGY_ENV_VAR);
+        }
+
+        {
+            let _guards = configure_virtual_environment_host_env(HostOs::Windows, &forced_path).unwrap();
+            assert_eq!(
+                PathBuf::from(
+                    env::var_os(pwsh_host::STARTUP_HOOK_MODULE_VENV_PATH_ENV_VAR)
+                        .expect("module venv path should be set")
+                ),
+                forced_path
+            );
+            assert_eq!(
+                env::var(pwsh_host::STARTUP_HOOK_STRATEGY_ENV_VAR).unwrap(),
+                pwsh_host::MODULE_PATH_STRATEGY
+            );
+        }
+
+        match previous_forced_path {
+            Some(value) => unsafe { env::set_var(pwsh_host::STARTUP_HOOK_MODULE_VENV_PATH_ENV_VAR, value) },
+            None => unsafe { env::remove_var(pwsh_host::STARTUP_HOOK_MODULE_VENV_PATH_ENV_VAR) },
+        }
+
+        match previous_strategy {
+            Some(value) => unsafe { env::set_var(pwsh_host::STARTUP_HOOK_STRATEGY_ENV_VAR, value) },
+            None => unsafe { env::remove_var(pwsh_host::STARTUP_HOOK_STRATEGY_ENV_VAR) },
+        }
+    }
+
+    #[test]
+    fn configure_virtual_environment_host_env_sets_and_restores_unix_startup_hook_variables() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let temp_dir = tempfile::tempdir().unwrap();
+        let forced_path = temp_dir.path().join("venv");
+        fs::create_dir_all(&forced_path).unwrap();
+
+        let previous_forced_path = env::var_os(pwsh_host::STARTUP_HOOK_MODULE_VENV_PATH_ENV_VAR);
+        let previous_strategy = env::var_os(pwsh_host::STARTUP_HOOK_STRATEGY_ENV_VAR);
+
+        unsafe {
+            env::remove_var(pwsh_host::STARTUP_HOOK_MODULE_VENV_PATH_ENV_VAR);
+            env::remove_var(pwsh_host::STARTUP_HOOK_STRATEGY_ENV_VAR);
+        }
+
+        {
+            let _guards = configure_virtual_environment_host_env(HostOs::Linux, &forced_path).unwrap();
+            assert_eq!(
+                PathBuf::from(
+                    env::var_os(pwsh_host::STARTUP_HOOK_MODULE_VENV_PATH_ENV_VAR)
+                        .expect("module venv path should be set")
+                ),
+                forced_path
+            );
+            assert_eq!(
+                env::var(pwsh_host::STARTUP_HOOK_STRATEGY_ENV_VAR).unwrap(),
+                pwsh_host::MODULE_PATH_STRATEGY
+            );
+        }
+
+        match previous_forced_path {
+            Some(value) => unsafe { env::set_var(pwsh_host::STARTUP_HOOK_MODULE_VENV_PATH_ENV_VAR, value) },
+            None => unsafe { env::remove_var(pwsh_host::STARTUP_HOOK_MODULE_VENV_PATH_ENV_VAR) },
+        }
+
+        match previous_strategy {
+            Some(value) => unsafe { env::set_var(pwsh_host::STARTUP_HOOK_STRATEGY_ENV_VAR, value) },
+            None => unsafe { env::remove_var(pwsh_host::STARTUP_HOOK_STRATEGY_ENV_VAR) },
+        }
     }
 
     #[test]

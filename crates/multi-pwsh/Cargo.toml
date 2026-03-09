@@ -1,6 +1,6 @@
 [package]
 name = "multi-pwsh"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2018"
 license = "MIT/Apache-2.0"
 description = "Install and update side-by-side PowerShell versions in user context"

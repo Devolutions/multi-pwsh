@@ -5,7 +5,8 @@ use crate::hostfxr::load_hostfxr;
 use crate::pdcstr;
 use crate::pdcstring::PdCString;
 
-pub const BINDINGS_DLL: &[u8] = include_bytes!("../../../dotnet/bin/Release/net8.0/Bindings.dll");
+pub const BINDINGS_DLL: &[u8] =
+    include_bytes!("../../../dotnet/bindings/bin/Release/net8.0/Devolutions.PowerShell.SDK.Bindings.dll");
 
 pub fn get_assembly_delegate_loader() -> AssemblyDelegateLoader<PdCString> {
     let pwsh_path = pwsh_host_detect();
