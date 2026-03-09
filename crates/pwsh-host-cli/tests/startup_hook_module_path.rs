@@ -120,7 +120,7 @@ fn run_shim_with_module_path_startup_hook(module_venv_path: &Path) -> Output {
         "([bool]$psResourceCommand).ToString();",
         "if ($psResourceCommand) { $psResourceCommand.CommandType.ToString() } else { '' };",
         "([bool]$env:DOTNET_STARTUP_HOOKS).ToString();",
-        "([bool]$env:PSMODULE_VENV_PATH).ToString();"
+        "$env:PSMODULE_VENV_PATH;"
     );
 
     let output = Command::new(shim)
@@ -208,5 +208,9 @@ fn module_path_is_the_default_startup_hook_behavior() {
         lines[8], "False",
         "DOTNET_STARTUP_HOOKS should not leak into process env"
     );
-    assert_eq!(lines[9], "False", "module venv path should not leak into process env");
+    assert_eq!(
+        lines[9],
+        venv_dir.path().to_string_lossy(),
+        "module venv path should be available in process env"
+    );
 }

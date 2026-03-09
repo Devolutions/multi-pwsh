@@ -16,11 +16,19 @@ public static partial class StartupHook
     private const string ImportModuleCmdletHelperName = "Import-PWSHHostModule";
     private const string InstallModuleCmdletHelperName = "Install-PWSHHostModule";
     private const string GetInstalledModuleCmdletHelperName = "Get-PWSHHostInstalledModule";
+    private const string GetPSRepositoryCmdletHelperName = "Get-PWSHHostPSRepository";
+    private const string SetPSRepositoryCmdletHelperName = "Set-PWSHHostPSRepository";
+    private const string RegisterPSRepositoryCmdletHelperName = "Register-PWSHHostPSRepository";
+    private const string UnregisterPSRepositoryCmdletHelperName = "Unregister-PWSHHostPSRepository";
     private const string InstallPSResourceCmdletHelperName = "Install-PWSHHostPSResource";
     private const string GetInstalledPSResourceCmdletHelperName = "Get-PWSHHostInstalledPSResource";
     private const string ImportModuleCommandName = "Import-Module";
     private const string InstallModuleCommandName = "Install-Module";
     private const string GetInstalledModuleCommandName = "Get-InstalledModule";
+    private const string GetPSRepositoryCommandName = "Get-PSRepository";
+    private const string SetPSRepositoryCommandName = "Set-PSRepository";
+    private const string RegisterPSRepositoryCommandName = "Register-PSRepository";
+    private const string UnregisterPSRepositoryCommandName = "Unregister-PSRepository";
     private const string InstallPSResourceCommandName = "Install-PSResource";
     private const string GetInstalledPSResourceCommandName = "Get-InstalledPSResource";
 
@@ -98,6 +106,8 @@ public static partial class StartupHook
             {
                 throw new NotSupportedException($"unsupported startup hook strategy '{s_strategy}'");
             }
+
+            Environment.SetEnvironmentVariable(ModuleVenvPathProperty, s_moduleVenvPath);
 
             Assembly sma = Assembly.Load("System.Management.Automation");
             Type moduleIntrinsics = sma.GetType("System.Management.Automation.ModuleIntrinsics", throwOnError: true)!;
@@ -220,11 +230,19 @@ public static partial class StartupHook
         InstallCmdlet(addSessionStateEntry, sessionState, ImportModuleCmdletHelperName, typeof(StartupHookImportModuleCommand));
         InstallCmdlet(addSessionStateEntry, sessionState, InstallModuleCmdletHelperName, typeof(StartupHookInstallModuleCommand));
         InstallCmdlet(addSessionStateEntry, sessionState, GetInstalledModuleCmdletHelperName, typeof(StartupHookGetInstalledModuleCommand));
+        InstallCmdlet(addSessionStateEntry, sessionState, GetPSRepositoryCmdletHelperName, typeof(StartupHookGetPSRepositoryCommand));
+        InstallCmdlet(addSessionStateEntry, sessionState, SetPSRepositoryCmdletHelperName, typeof(StartupHookSetPSRepositoryCommand));
+        InstallCmdlet(addSessionStateEntry, sessionState, RegisterPSRepositoryCmdletHelperName, typeof(StartupHookRegisterPSRepositoryCommand));
+        InstallCmdlet(addSessionStateEntry, sessionState, UnregisterPSRepositoryCmdletHelperName, typeof(StartupHookUnregisterPSRepositoryCommand));
         InstallCmdlet(addSessionStateEntry, sessionState, InstallPSResourceCmdletHelperName, typeof(StartupHookInstallPSResourceCommand));
         InstallCmdlet(addSessionStateEntry, sessionState, GetInstalledPSResourceCmdletHelperName, typeof(StartupHookGetInstalledPSResourceCommand));
         InstallAlias(setAliasValue, sessionState, ImportModuleCommandName, ImportModuleCmdletHelperName);
         InstallAlias(setAliasValue, sessionState, InstallModuleCommandName, InstallModuleCmdletHelperName);
         InstallAlias(setAliasValue, sessionState, GetInstalledModuleCommandName, GetInstalledModuleCmdletHelperName);
+        InstallAlias(setAliasValue, sessionState, GetPSRepositoryCommandName, GetPSRepositoryCmdletHelperName);
+        InstallAlias(setAliasValue, sessionState, SetPSRepositoryCommandName, SetPSRepositoryCmdletHelperName);
+        InstallAlias(setAliasValue, sessionState, RegisterPSRepositoryCommandName, RegisterPSRepositoryCmdletHelperName);
+        InstallAlias(setAliasValue, sessionState, UnregisterPSRepositoryCommandName, UnregisterPSRepositoryCmdletHelperName);
         InstallAlias(setAliasValue, sessionState, InstallPSResourceCommandName, InstallPSResourceCmdletHelperName);
         InstallAlias(setAliasValue, sessionState, GetInstalledPSResourceCommandName, GetInstalledPSResourceCmdletHelperName);
     }

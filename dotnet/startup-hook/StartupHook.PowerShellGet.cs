@@ -178,6 +178,24 @@ public static partial class StartupHook
         }
     }
 
+    public static IEnumerable<PSObject> InvokePowerShellGetCommand(string commandName, IDictionary<string, object> boundParameters)
+    {
+        EnsurePowerShellGetVenvPatched();
+
+        using PowerShell powerShell = PowerShell.Create(RunspaceMode.CurrentRunspace);
+        powerShell.AddCommand($"PowerShellGet\\{commandName}");
+
+        foreach (KeyValuePair<string, object> entry in boundParameters)
+        {
+            powerShell.AddParameter(entry.Key, entry.Value);
+        }
+
+        foreach (PSObject result in powerShell.Invoke())
+        {
+            yield return result;
+        }
+    }
+
     private static List<PSObject> InvokeNativeGetInstalledModule(
         string[]? name,
         string? minimumVersion,

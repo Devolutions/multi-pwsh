@@ -226,9 +226,11 @@ fn virtual_environment_bootstrap_prelude() -> &'static str {
         "for ($__multiPwshAttempt = 0; $__multiPwshAttempt -lt 200; $__multiPwshAttempt++) { ",
         "  $__multiPwshImportModule = Get-Command Import-Module -ErrorAction SilentlyContinue; ",
         "  $__multiPwshInstalledModule = Get-Command Get-InstalledModule -ErrorAction SilentlyContinue; ",
+        "  $__multiPwshPsRepository = Get-Command Get-PSRepository -ErrorAction SilentlyContinue; ",
         "  $__multiPwshInstalledPsResource = Get-Command Get-InstalledPSResource -ErrorAction SilentlyContinue; ",
         "  if ($__multiPwshImportModule -and $__multiPwshImportModule.CommandType -eq 'Alias' -and ",
         "      $__multiPwshInstalledModule -and $__multiPwshInstalledModule.CommandType -eq 'Alias' -and ",
+        "      $__multiPwshPsRepository -and $__multiPwshPsRepository.CommandType -eq 'Alias' -and ",
         "      $__multiPwshInstalledPsResource -and $__multiPwshInstalledPsResource.CommandType -eq 'Alias') { break }; ",
         "  Start-Sleep -Milliseconds 10; ",
         "}; "

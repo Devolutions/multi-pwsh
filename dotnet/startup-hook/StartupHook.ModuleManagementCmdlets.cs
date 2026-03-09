@@ -481,6 +481,126 @@ public sealed class StartupHookGetInstalledModuleCommand : PSCmdlet
     }
 }
 
+[Cmdlet(VerbsCommon.Get, "PSRepository")]
+public sealed class StartupHookGetPSRepositoryCommand : PSCmdlet
+{
+    [Parameter(Position = 0, ValueFromPipelineByPropertyName = true)]
+    public string[]? Name { get; set; }
+
+    protected override void ProcessRecord()
+    {
+        foreach (PSObject repository in StartupHook.InvokePowerShellGetCommand("Get-PSRepository", MyInvocation.BoundParameters))
+        {
+            WriteObject(repository);
+        }
+    }
+}
+
+[Cmdlet(VerbsCommon.Set, "PSRepository")]
+public sealed class StartupHookSetPSRepositoryCommand : PSCmdlet
+{
+    [Parameter(Mandatory = true, Position = 0, ValueFromPipelineByPropertyName = true)]
+    public string Name { get; set; } = string.Empty;
+
+    [Parameter(ValueFromPipelineByPropertyName = true)]
+    public string? SourceLocation { get; set; }
+
+    [Parameter(ValueFromPipelineByPropertyName = true)]
+    public string? PublishLocation { get; set; }
+
+    [Parameter(ValueFromPipelineByPropertyName = true)]
+    public string? ScriptSourceLocation { get; set; }
+
+    [Parameter(ValueFromPipelineByPropertyName = true)]
+    public string? ScriptPublishLocation { get; set; }
+
+    [Parameter(ValueFromPipelineByPropertyName = true)]
+    public PSCredential? Credential { get; set; }
+
+    [Parameter(ValueFromPipelineByPropertyName = true)]
+    public string? InstallationPolicy { get; set; }
+
+    [Parameter(ValueFromPipelineByPropertyName = true)]
+    public Uri? Proxy { get; set; }
+
+    [Parameter(ValueFromPipelineByPropertyName = true)]
+    public PSCredential? ProxyCredential { get; set; }
+
+    [Parameter(ValueFromPipelineByPropertyName = true)]
+    public string? PackageManagementProvider { get; set; }
+
+    protected override void ProcessRecord()
+    {
+        foreach (PSObject repository in StartupHook.InvokePowerShellGetCommand("Set-PSRepository", MyInvocation.BoundParameters))
+        {
+            WriteObject(repository);
+        }
+    }
+}
+
+[Cmdlet(VerbsLifecycle.Register, "PSRepository", DefaultParameterSetName = "NameParameterSet")]
+public sealed class StartupHookRegisterPSRepositoryCommand : PSCmdlet
+{
+    [Parameter(Mandatory = true, ParameterSetName = "NameParameterSet", Position = 0, ValueFromPipelineByPropertyName = true)]
+    public string? Name { get; set; }
+
+    [Parameter(Mandatory = true, ParameterSetName = "NameParameterSet", ValueFromPipelineByPropertyName = true)]
+    public string? SourceLocation { get; set; }
+
+    [Parameter(ParameterSetName = "NameParameterSet", ValueFromPipelineByPropertyName = true)]
+    public string? PublishLocation { get; set; }
+
+    [Parameter(ParameterSetName = "NameParameterSet", ValueFromPipelineByPropertyName = true)]
+    public string? ScriptSourceLocation { get; set; }
+
+    [Parameter(ParameterSetName = "NameParameterSet", ValueFromPipelineByPropertyName = true)]
+    public string? ScriptPublishLocation { get; set; }
+
+    [Parameter(ParameterSetName = "NameParameterSet", ValueFromPipelineByPropertyName = true)]
+    public PSCredential? Credential { get; set; }
+
+    [Parameter(ParameterSetName = "NameParameterSet")]
+    [Parameter(ParameterSetName = "PSGalleryParameterSet")]
+    public string? InstallationPolicy { get; set; }
+
+    [Parameter(ParameterSetName = "NameParameterSet", ValueFromPipelineByPropertyName = true)]
+    [Parameter(ParameterSetName = "PSGalleryParameterSet", ValueFromPipelineByPropertyName = true)]
+    public Uri? Proxy { get; set; }
+
+    [Parameter(ParameterSetName = "NameParameterSet", ValueFromPipelineByPropertyName = true)]
+    [Parameter(ParameterSetName = "PSGalleryParameterSet", ValueFromPipelineByPropertyName = true)]
+    public PSCredential? ProxyCredential { get; set; }
+
+    [Parameter(ParameterSetName = "NameParameterSet", ValueFromPipelineByPropertyName = true)]
+    public string? PackageManagementProvider { get; set; }
+
+    [Parameter(Mandatory = true, ParameterSetName = "PSGalleryParameterSet")]
+    public SwitchParameter Default { get; set; }
+
+    protected override void ProcessRecord()
+    {
+        foreach (PSObject repository in StartupHook.InvokePowerShellGetCommand("Register-PSRepository", MyInvocation.BoundParameters))
+        {
+            WriteObject(repository);
+        }
+    }
+}
+
+[Cmdlet(VerbsLifecycle.Unregister, "PSRepository")]
+public sealed class StartupHookUnregisterPSRepositoryCommand : PSCmdlet
+{
+    [Parameter(Mandatory = true, Position = 0, ValueFromPipelineByPropertyName = true)]
+    public string[]? Name { get; set; }
+
+    protected override void ProcessRecord()
+    {
+        foreach (PSObject repository in StartupHook.InvokePowerShellGetCommand("Unregister-PSRepository", MyInvocation.BoundParameters))
+        {
+            WriteObject(repository);
+        }
+    }
+}
+
 [Cmdlet(VerbsLifecycle.Install, "PSResource", DefaultParameterSetName = "NameParameterSet", SupportsShouldProcess = true, ConfirmImpact = ConfirmImpact.Medium)]
 public sealed class StartupHookInstallPSResourceCommand : PSCmdlet
 {

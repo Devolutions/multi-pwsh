@@ -215,6 +215,7 @@ fn query_venv_runtime_paths(home: &Path, selector: &str, venv: &str) -> Value {
     let command = "Import-Module PowerShellGet -ErrorAction Stop; \
         $powerShellGet = Get-Module PowerShellGet -ErrorAction Stop; \
         $result = [ordered]@{ \
+            EnvModuleVenvPath = $env:PSMODULE_VENV_PATH; \
             EnvPSModulePath = $env:PSModulePath; \
             PowerShellGetCurrentUserModules = $powerShellGet.SessionState.PSVariable.GetValue('MyDocumentsModulesPath'); \
             PowerShellGetPsGetPathCurrentUser = (($powerShellGet.SessionState.PSVariable.GetValue('PSGetPath')).CurrentUserModules) \
@@ -243,6 +244,71 @@ fn query_venv_runtime_paths(home: &Path, selector: &str, venv: &str) -> Value {
     );
 
     serde_json::from_str(&normalize_output(&output.stdout)).expect("failed to parse venv runtime path JSON")
+}
+
+fn query_psrepositories_without_powershellget_import(home: &Path, selector: &str, venv: &str) -> Vec<String> {
+    let command =
+        "$result = @(Get-PSRepository | Select-Object -ExpandProperty Name); $result | ConvertTo-Json -Compress";
+
+    let output = run_multi_pwsh(
+        &[
+            "host",
+            selector,
+            "-venv",
+            venv,
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            command,
+        ],
+        home,
+    );
+
+    assert!(
+        output.status.success(),
+        "failed to query PS repositories without explicit PowerShellGet import: {}",
+        normalize_output(&output.stderr)
+    );
+
+    let parsed: Value =
+        serde_json::from_str(&normalize_output(&output.stdout)).expect("failed to parse PS repository JSON");
+
+    match parsed {
+        Value::Array(values) => values
+            .into_iter()
+            .filter_map(|item| item.as_str().map(ToOwned::to_owned))
+            .collect(),
+        Value::String(name) => vec![name],
+        _ => panic!("unexpected PS repository JSON: {:?}", parsed),
+    }
+}
+
+fn set_psgallery_trusted_without_powershellget_import(home: &Path, selector: &str, venv: &str) -> String {
+    let command = "Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction Stop; (Get-PSRepository -Name PSGallery).InstallationPolicy";
+
+    let output = run_multi_pwsh(
+        &[
+            "host",
+            selector,
+            "-venv",
+            venv,
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            command,
+        ],
+        home,
+    );
+
+    assert!(
+        output.status.success(),
+        "failed to set PSGallery trust without explicit PowerShellGet import: {}",
+        normalize_output(&output.stderr)
+    );
+
+    normalize_output(&output.stdout)
 }
 
 fn query_installed_module_location_after_powershellget_import(
@@ -709,6 +775,7 @@ fn host_venv_rewrites_powershellget_current_user_module_path() {
         "expected bundled PSHOME modules path, got {:?}",
         module_path_entries[1]
     );
+    assert_eq!(runtime_paths["EnvModuleVenvPath"].as_str(), Some(expected.as_str()));
     assert_eq!(
         runtime_paths["PowerShellGetCurrentUserModules"].as_str(),
         Some(expected.as_str())
@@ -716,6 +783,57 @@ fn host_venv_rewrites_powershellget_current_user_module_path() {
     assert_eq!(
         runtime_paths["PowerShellGetPsGetPathCurrentUser"].as_str(),
         Some(expected.as_str())
+    );
+}
+
+#[test]
+fn host_venv_get_psrepository_works_without_powershellget_import() {
+    let temp_dir = TempDir::new().expect("failed to create temp dir");
+    let (version, pwsh_install_dir) = discover_pwsh_install();
+
+    let managed_version_dir = temp_dir.path().join("multi").join(&version);
+    std::fs::create_dir_all(managed_version_dir.parent().expect("missing version dir parent"))
+        .expect("failed to create managed multi dir");
+    link_directory(&managed_version_dir, &pwsh_install_dir);
+
+    let output = run_multi_pwsh(&["venv", "create", "repo-query"], temp_dir.path());
+    assert!(
+        output.status.success(),
+        "failed to create venv: {}",
+        normalize_output(&output.stderr)
+    );
+
+    let repositories = query_psrepositories_without_powershellget_import(temp_dir.path(), &version, "repo-query");
+
+    assert!(
+        repositories.iter().any(|name| name == "PSGallery"),
+        "expected PSGallery to be discoverable without explicit PowerShellGet import, got {:?}",
+        repositories
+    );
+}
+
+#[test]
+fn host_venv_set_psrepository_works_without_powershellget_import() {
+    let temp_dir = TempDir::new().expect("failed to create temp dir");
+    let (version, pwsh_install_dir) = discover_pwsh_install();
+
+    let managed_version_dir = temp_dir.path().join("multi").join(&version);
+    std::fs::create_dir_all(managed_version_dir.parent().expect("missing version dir parent"))
+        .expect("failed to create managed multi dir");
+    link_directory(&managed_version_dir, &pwsh_install_dir);
+
+    let output = run_multi_pwsh(&["venv", "create", "repo-set"], temp_dir.path());
+    assert!(
+        output.status.success(),
+        "failed to create venv: {}",
+        normalize_output(&output.stderr)
+    );
+
+    let installation_policy = set_psgallery_trusted_without_powershellget_import(temp_dir.path(), &version, "repo-set");
+
+    assert_eq!(
+        installation_policy, "Trusted",
+        "expected Set-PSRepository to succeed without explicit PowerShellGet import"
     );
 }
 
