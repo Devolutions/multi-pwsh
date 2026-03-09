@@ -31,9 +31,14 @@ public static partial class StartupHook
             yield break;
         }
 
-        List<PSObject> nativeResults = InvokeNativeGetInstalledPSResource(name, version, scope: null, moduleVenvPath, silenceErrors: true)
-            .Where(result => IsPathUnderRoot(result.Properties["InstalledLocation"]?.Value?.ToString(), moduleVenvPath))
-            .ToList();
+        bool hasManifestInVenv = Directory.Exists(moduleVenvPath)
+            && Directory.EnumerateFiles(moduleVenvPath, "*.psd1", SearchOption.AllDirectories).Any();
+
+        List<PSObject> nativeResults = hasManifestInVenv
+            ? InvokeNativeGetInstalledPSResource(name, version, scope: null, moduleVenvPath, silenceErrors: true)
+                .Where(result => IsPathUnderRoot(result.Properties["InstalledLocation"]?.Value?.ToString(), moduleVenvPath))
+                .ToList()
+            : new List<PSObject>();
         HashSet<string> reportedKeys = new(StringComparer.OrdinalIgnoreCase);
 
         foreach (PSObject nativeResult in nativeResults)
@@ -80,7 +85,6 @@ public static partial class StartupHook
             string[] moduleNamesToSave = name
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .Where(resourceName => !GetFallbackInstalledPsResources(new[] { resourceName }, version, moduleVenvPath).Any())
-                .Where(resourceName => IsModulePsResource(resourceName, version, repository, credential, prerelease))
                 .ToArray();
 
             if (moduleNamesToSave.Length > 0)
@@ -345,35 +349,6 @@ public static partial class StartupHook
         return 1;
     }
 
-    private static bool IsModulePsResource(
-        string resourceName,
-        string? version,
-        string[]? repository,
-        PSCredential? credential,
-        bool prerelease)
-    {
-        try
-        {
-            using PowerShell powerShell = PowerShell.Create(RunspaceMode.CurrentRunspace);
-            powerShell.AddCommand("Microsoft.PowerShell.PSResourceGet\\Find-PSResource");
-            powerShell.AddParameter("Name", resourceName);
-            AddStringParameter(powerShell, "Version", version);
-            AddStringArrayParameter(powerShell, "Repository", repository);
-            AddObjectParameter(powerShell, "Credential", credential);
-            if (prerelease)
-            {
-                powerShell.AddParameter("Prerelease");
-            }
-
-            PSObject? candidate = powerShell.Invoke().FirstOrDefault();
-            return candidate is not null && IsModuleResourceObject(candidate);
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
     private static bool IsModuleResourceObject(PSObject resource)
     {
         object? typeValue = resource.Properties["Type"]?.Value;
@@ -406,7 +381,11 @@ public static partial class StartupHook
         AddObjectParameter(powerShell, "Credential", credential);
         AddStringParameter(powerShell, "TemporaryPath", temporaryPath);
         AddSwitchParameter(powerShell, "TrustRepository", trustRepository);
-        AddSwitchParameter(powerShell, "Quiet", quiet);
+        AddSwitchParameterIfSupported(
+            powerShell,
+            "Microsoft.PowerShell.PSResourceGet\\Save-PSResource",
+            "Quiet",
+            quiet);
         AddSwitchParameter(powerShell, "Prerelease", prerelease);
         AddSwitchParameter(powerShell, "AcceptLicense", acceptLicense);
         AddSwitchParameter(powerShell, "SkipDependencyCheck", skipDependencyCheck);
@@ -436,7 +415,11 @@ public static partial class StartupHook
         AddObjectParameter(powerShell, "Credential", credential);
         AddStringParameter(powerShell, "TemporaryPath", temporaryPath);
         AddSwitchParameter(powerShell, "TrustRepository", trustRepository);
-        AddSwitchParameter(powerShell, "Quiet", quiet);
+        AddSwitchParameterIfSupported(
+            powerShell,
+            "Microsoft.PowerShell.PSResourceGet\\Save-PSResource",
+            "Quiet",
+            quiet);
         AddSwitchParameter(powerShell, "Prerelease", prerelease);
         AddSwitchParameter(powerShell, "AcceptLicense", acceptLicense);
         AddSwitchParameter(powerShell, "SkipDependencyCheck", skipDependencyCheck);
@@ -468,5 +451,37 @@ public static partial class StartupHook
         {
             powerShell.AddParameter(name);
         }
+    }
+
+    private static void AddSwitchParameterIfSupported(
+        PowerShell powerShell,
+        string commandName,
+        string parameterName,
+        bool value)
+    {
+        if (!value)
+        {
+            return;
+        }
+
+        if (CommandSupportsParameter(commandName, parameterName))
+        {
+            powerShell.AddParameter(parameterName);
+        }
+    }
+
+    private static bool CommandSupportsParameter(string commandName, string parameterName)
+    {
+        using PowerShell commandLookup = PowerShell.Create(RunspaceMode.CurrentRunspace);
+        commandLookup.AddCommand("Microsoft.PowerShell.Core\\Get-Command");
+        commandLookup.AddParameter("Name", commandName);
+
+        CommandInfo? commandInfo = commandLookup.Invoke<CommandInfo>().FirstOrDefault();
+        if (commandInfo is null)
+        {
+            return false;
+        }
+
+        return commandInfo.Parameters.ContainsKey(parameterName);
     }
 }

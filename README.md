@@ -94,6 +94,42 @@ multi-pwsh host <version|major|major.minor|pwsh-alias> [-VirtualEnvironment <nam
 multi-pwsh doctor --repair-aliases
 ```
 
+### Venv cmdlet matrix tests (Pester)
+
+Use the local Pester harness to validate venv-sensitive cmdlet behavior across installed version aliases (`pwsh-x.y.z`).
+
+Run all installed version aliases:
+
+```powershell
+pwsh -NoLogo -NoProfile -NonInteractive -File .\tests\Invoke-VenvTestMatrix.ps1
+```
+
+Run one alias only:
+
+```powershell
+pwsh -NoLogo -NoProfile -NonInteractive -File .\tests\Invoke-VenvTestMatrix.ps1 -Aliases pwsh-7.4.13
+```
+
+Include online install tests (`Install-PSResource` / `Install-Module`):
+
+```powershell
+pwsh -NoLogo -NoProfile -NonInteractive -File .\tests\Invoke-VenvTestMatrix.ps1 -EnableOnlineTests
+```
+
+Online mode details:
+
+- The tests do not modify PSGallery trust policy.
+- `Install-PSResource` uses `-TrustRepository -Quiet` and `Install-Module` uses `-Force -AcceptLicense -Confirm:$false` to run non-interactively.
+- The install checks use `Yayaml` to keep downloads and execution lightweight.
+
+Notes:
+
+- The runner creates a temporary venv per alias and deletes it by default.
+- Use `-KeepVenv` to keep those venvs for troubleshooting.
+- The runner stops on the first failed alias by default.
+- Use `-ContinueOnFailure` to keep running remaining aliases after a failure.
+- Pester must be available in the host PowerShell session.
+
 Selector behavior:
 
 - `7` installs the latest available 7.x release for your platform.
