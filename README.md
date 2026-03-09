@@ -110,6 +110,7 @@ Native host mode:
 - `multi-pwsh host <selector> ...` runs PowerShell through native hosting (`pwsh-host` crate) instead of launching a `pwsh` subprocess.
 - `<selector>` supports `7`, `7.4`, `7.4.13`, or alias-form selectors such as `pwsh-7.4`.
 - `-VirtualEnvironment <name>` and `-venv <name>` are consumed by `multi-pwsh` before handing control to PowerShell and set `PSModulePath` to the selected venv root for that launch.
+- `PSMODULE_VENV_PATH` can also be used as an explicit path-based venv selector for hosted launches. If it is already set in the environment, `multi-pwsh host` treats it as an intentional venv opt-in.
 - Alias lifecycle now maintains native host shims as hard links to `multi-pwsh` automatically during install/update/doctor alias repair.
 - On Windows, host shims are `pwsh-*.exe` files alongside `.cmd` wrappers in `MULTI_PWSH_BIN_DIR` (default: `~/.pwsh/bin`).
 - On Linux/macOS, alias command paths (`pwsh-*`) are hard links to `multi-pwsh`.
@@ -147,6 +148,17 @@ multi-pwsh host 7.4 -venv msgraph -NoLogo -NoProfile -Command "$env:PSModulePath
 ```
 
 Both `-venv <name>` and `-VirtualEnvironment <name>` are supported.
+
+You can also opt into a venv by path with `PSMODULE_VENV_PATH`:
+
+```powershell
+$env:PSMODULE_VENV_PATH = Join-Path $HOME ".pwsh/venv/msgraph"
+multi-pwsh host 7.4 -NoLogo -NoProfile
+```
+
+`-venv <name>` and `-VirtualEnvironment <name>` accept a venv name and resolve it to a path before launch. `PSMODULE_VENV_PATH` is the lower-level path form of the same idea and is useful when a parent PowerShell session already knows which venv path should flow to child hosted sessions.
+
+If both a venv flag and `PSMODULE_VENV_PATH` are present, the flag wins for that launch because `multi-pwsh` resolves the named venv and sets the effective path explicitly. If neither is present, no venv-specific startup-hook behavior is enabled.
 
 #### Populate a venv with modules
 
