@@ -22,48 +22,36 @@ jobs:
           - name: linux-x64
             os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            host_archive: pwsh-host-linux-x64.zip
-            host_binary: pwsh-host
             multi_archive: multi-pwsh-linux-x64.zip
             multi_binary: multi-pwsh
 
           - name: linux-arm64
             os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
-            host_archive: pwsh-host-linux-arm64.zip
-            host_binary: pwsh-host
             multi_archive: multi-pwsh-linux-arm64.zip
             multi_binary: multi-pwsh
 
           - name: windows-x64
             os: windows-latest
             target: x86_64-pc-windows-msvc
-            host_archive: pwsh-host-windows-x64.zip
-            host_binary: pwsh-host.exe
             multi_archive: multi-pwsh-windows-x64.zip
             multi_binary: multi-pwsh.exe
 
           - name: windows-arm64
             os: windows-latest
             target: aarch64-pc-windows-msvc
-            host_archive: pwsh-host-windows-arm64.zip
-            host_binary: pwsh-host.exe
             multi_archive: multi-pwsh-windows-arm64.zip
             multi_binary: multi-pwsh.exe
 
           - name: macos-x64
             os: macos-14
             target: x86_64-apple-darwin
-            host_archive: pwsh-host-macos-x64.zip
-            host_binary: pwsh-host
             multi_archive: multi-pwsh-macos-x64.zip
             multi_binary: multi-pwsh
 
           - name: macos-arm64
             os: macos-14
             target: aarch64-apple-darwin
-            host_archive: pwsh-host-macos-arm64.zip
-            host_binary: pwsh-host
             multi_archive: multi-pwsh-macos-arm64.zip
             multi_binary: multi-pwsh
 
@@ -101,15 +89,12 @@ jobs:
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
         run: |
-          cargo build --locked --release --package pwsh-host-cli --bin pwsh-host --target "${{ matrix.target }}"
           cargo build --locked --release --package multi-pwsh --bin multi-pwsh --target "${{ matrix.target }}"
 
       - name: Package artifacts
         shell: pwsh
         env:
           TARGET: ${{ matrix.target }}
-          HOST_BIN_NAME: ${{ matrix.host_binary }}
-          HOST_ARCHIVE_NAME: ${{ matrix.host_archive }}
           MULTI_BIN_NAME: ${{ matrix.multi_binary }}
           MULTI_ARCHIVE_NAME: ${{ matrix.multi_archive }}
         run: |
@@ -147,15 +132,7 @@ jobs:
             Write-Host "Created $ArchiveName"
           }
 
-          New-BinaryArchive -BinaryName $env:HOST_BIN_NAME -ArchiveName $env:HOST_ARCHIVE_NAME
           New-BinaryArchive -BinaryName $env:MULTI_BIN_NAME -ArchiveName $env:MULTI_ARCHIVE_NAME
-
-      - name: Upload pwsh-host artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.host_archive }}
-          path: ${{ matrix.host_archive }}
-          if-no-files-found: error
 
       - name: Upload multi-pwsh artifact
         uses: actions/upload-artifact@v4
@@ -184,7 +161,7 @@ jobs:
         working-directory: dist
         run: |
           $zipFiles = Get-ChildItem -Recurse -File |
-            Where-Object { $_.Name -like 'pwsh-host-*.zip' -or $_.Name -like 'multi-pwsh-*.zip' } |
+            Where-Object { $_.Name -like 'multi-pwsh-*.zip' } |
             Sort-Object Name
 
           if (-not $zipFiles) {
@@ -210,7 +187,7 @@ jobs:
           RELEASE_TARGET: ${{ github.sha }}
         run: |
           $zipFiles = Get-ChildItem -Path dist -Recurse -File |
-            Where-Object { $_.Name -like 'pwsh-host-*.zip' -or $_.Name -like 'multi-pwsh-*.zip' } |
+            Where-Object { $_.Name -like 'multi-pwsh-*.zip' } |
             Sort-Object Name |
             ForEach-Object { $_.FullName }
 

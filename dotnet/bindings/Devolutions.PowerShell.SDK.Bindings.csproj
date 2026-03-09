@@ -14,18 +14,26 @@
     <Compile Include="$(DiscoveredBindingsWrappersPath)" Visible="false" />
   </ItemGroup>
   <Target Name="ResolvePwshExePath" Condition="'$(PwshExePath)' == ''">
-    <Exec Condition="'$(OS)' == 'Windows_NT'"
-          Command="where.exe pwsh-7.4 &gt;nul 2&gt;nul &amp;&amp; echo pwsh-7.4 || echo pwsh"
-          ConsoleToMsBuild="true">
-      <Output TaskParameter="ConsoleOutput" PropertyName="ResolvedPwshExePath" />
-    </Exec>
-    <Exec Condition="'$(OS)' != 'Windows_NT'"
-          Command="command -v pwsh-7.4 &gt;/dev/null 2&gt;&amp;1 &amp;&amp; printf 'pwsh-7.4' || printf 'pwsh'"
-          ConsoleToMsBuild="true">
-      <Output TaskParameter="ConsoleOutput" PropertyName="ResolvedPwshExePath" />
-    </Exec>
     <PropertyGroup>
-      <PwshExePath>$([System.String]::Copy('$(ResolvedPwshExePath)').Trim())</PwshExePath>
+      <ResolvedPwshExePath>pwsh</ResolvedPwshExePath>
+    </PropertyGroup>
+
+    <Exec Condition="'$(OS)' == 'Windows_NT'"
+          Command="where.exe pwsh-7.4"
+          IgnoreExitCode="true">
+      <Output TaskParameter="ExitCode" PropertyName="WindowsPwsh74ExitCode" />
+    </Exec>
+
+    <Exec Condition="'$(OS)' != 'Windows_NT'"
+          Command="command -v pwsh-7.4 &gt;/dev/null 2&gt;&amp;1"
+          IgnoreExitCode="true">
+      <Output TaskParameter="ExitCode" PropertyName="NonWindowsPwsh74ExitCode" />
+    </Exec>
+
+    <PropertyGroup>
+      <ResolvedPwshExePath Condition="'$(OS)' == 'Windows_NT' and '$(WindowsPwsh74ExitCode)' == '0'">pwsh-7.4</ResolvedPwshExePath>
+      <ResolvedPwshExePath Condition="'$(OS)' != 'Windows_NT' and '$(NonWindowsPwsh74ExitCode)' == '0'">pwsh-7.4</ResolvedPwshExePath>
+      <PwshExePath>$(ResolvedPwshExePath)</PwshExePath>
     </PropertyGroup>
   </Target>
   <Target Name="DiscoverBindings" BeforeTargets="BeforeBuild" DependsOnTargets="ResolvePwshExePath">
