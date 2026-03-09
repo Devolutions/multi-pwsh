@@ -281,6 +281,42 @@ fn query_installed_module_location_after_powershellget_import(
     normalize_output(&output.stdout)
 }
 
+fn query_installed_psresource_location_after_import(
+    home: &Path,
+    selector: &str,
+    venv: &str,
+    module_name: &str,
+) -> String {
+    let command = format!(
+        "Import-Module Microsoft.PowerShell.PSResourceGet -ErrorAction Stop; \
+         Get-InstalledPSResource {} -ErrorAction Stop | Select-Object -First 1 -ExpandProperty InstalledLocation",
+        quote_pwsh_literal(module_name)
+    );
+
+    let output = run_multi_pwsh(
+        &[
+            "host",
+            selector,
+            "-venv",
+            venv,
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            &command,
+        ],
+        home,
+    );
+
+    assert!(
+        output.status.success(),
+        "failed to query installed psresource after import: {}",
+        normalize_output(&output.stderr)
+    );
+
+    normalize_output(&output.stdout)
+}
+
 fn json_strings(value: &Value, key: &str) -> Vec<String> {
     value[key]
         .as_array()
@@ -718,5 +754,83 @@ fn host_venv_stdin_import_module_powershellget_keeps_get_installed_module_venv_a
     assert!(
         output_contains_module_base_under(&[stdout], &venv_root),
         "expected stdin-driven PowerShellGet import to preserve venv-installed module discovery"
+    );
+}
+
+#[test]
+fn host_venv_import_module_psresourceget_keeps_get_installed_psresource_venv_aware() {
+    let temp_dir = TempDir::new().expect("failed to create temp dir");
+    let (version, pwsh_install_dir) = discover_pwsh_install();
+
+    let managed_version_dir = temp_dir.path().join("multi").join(&version);
+    std::fs::create_dir_all(managed_version_dir.parent().expect("missing version dir parent"))
+        .expect("failed to create managed multi dir");
+    link_directory(&managed_version_dir, &pwsh_install_dir);
+
+    let output = run_multi_pwsh(&["venv", "create", "yaml-psresource"], temp_dir.path());
+    assert!(
+        output.status.success(),
+        "failed to create venv: {}",
+        normalize_output(&output.stderr)
+    );
+
+    let venv_root = temp_dir.path().join("venv").join("yaml-psresource");
+    save_gallery_module("Yayaml", &venv_root);
+
+    let installed_location =
+        query_installed_psresource_location_after_import(temp_dir.path(), &version, "yaml-psresource", "Yayaml");
+
+    assert!(
+        output_contains_module_base_under(&[installed_location], &venv_root),
+        "expected explicit PSResourceGet import to preserve venv-installed resource discovery"
+    );
+}
+
+#[test]
+fn host_venv_stdin_import_module_psresourceget_keeps_get_installed_psresource_venv_aware() {
+    let temp_dir = TempDir::new().expect("failed to create temp dir");
+    let (version, pwsh_install_dir) = discover_pwsh_install();
+
+    let managed_version_dir = temp_dir.path().join("multi").join(&version);
+    std::fs::create_dir_all(managed_version_dir.parent().expect("missing version dir parent"))
+        .expect("failed to create managed multi dir");
+    link_directory(&managed_version_dir, &pwsh_install_dir);
+
+    let output = run_multi_pwsh(&["venv", "create", "yaml-psresource-stdin"], temp_dir.path());
+    assert!(
+        output.status.success(),
+        "failed to create venv: {}",
+        normalize_output(&output.stderr)
+    );
+
+    let venv_root = temp_dir.path().join("venv").join("yaml-psresource-stdin");
+    save_gallery_module("Yayaml", &venv_root);
+
+    let host_output = run_multi_pwsh_with_stdin(
+        &[
+            "host",
+            &version,
+            "-venv",
+            "yaml-psresource-stdin",
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-File",
+            "-",
+        ],
+        temp_dir.path(),
+        "Import-Module Microsoft.PowerShell.PSResourceGet -ErrorAction Stop\nGet-InstalledPSResource Yayaml -ErrorAction Stop | Select-Object -First 1 -ExpandProperty InstalledLocation\n",
+    );
+
+    assert!(
+        host_output.status.success(),
+        "stdin-driven PSResourceGet host launch failed: {}",
+        normalize_output(&host_output.stderr)
+    );
+
+    let stdout = normalize_output(&host_output.stdout);
+    assert!(
+        output_contains_module_base_under(&[stdout], &venv_root),
+        "expected stdin-driven PSResourceGet import to preserve venv-installed resource discovery"
     );
 }

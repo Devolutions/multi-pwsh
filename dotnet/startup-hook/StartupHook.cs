@@ -13,13 +13,11 @@ public static partial class StartupHook
     private const string LegacyForceModulePathProperty = "PWSH_STARTUP_HOOK_FORCE_PSMODULEPATH";
     private const string LogPathProperty = "PWSH_STARTUP_HOOK_LOG_PATH";
     private const string StrategyProperty = "PWSH_STARTUP_HOOK_STRATEGY";
-    private const string PowerShellGetPatchHelperName = "__PWSH_HOST_PATCH_POWERSHELLGET_VENV";
-    private const string VenvInstalledModuleHelperName = "__PWSH_HOST_GET_VENV_INSTALLED_MODULE";
-    private const string VenvInstalledPSResourceHelperName = "__PWSH_HOST_GET_VENV_INSTALLED_PSRESOURCE";
     private const string InstallModuleWrapperHelperName = "__PWSH_HOST_INSTALL_MODULE_WRAPPER";
     private const string GetInstalledModuleWrapperHelperName = "__PWSH_HOST_GET_INSTALLED_MODULE_WRAPPER";
     private const string InstallPSResourceWrapperHelperName = "__PWSH_HOST_INSTALL_PSRESOURCE_WRAPPER";
     private const string GetInstalledPSResourceWrapperHelperName = "__PWSH_HOST_GET_INSTALLED_PSRESOURCE_WRAPPER";
+    private const string GetModuleWrapperName = "Get-Module";
     private const string InstallModuleWrapperName = "Install-Module";
     private const string GetInstalledModuleWrapperName = "Get-InstalledModule";
     private const string InstallPSResourceWrapperName = "Install-PSResource";
@@ -219,13 +217,11 @@ public static partial class StartupHook
             modifiers: null)!;
 
         string escapedModuleVenvPath = (s_moduleVenvPath ?? string.Empty).Replace("'", "''", StringComparison.Ordinal);
-        InstallFunction(setFunction, sessionState, PowerShellGetPatchHelperName, BuildPowerShellGetPatchHelperScript(escapedModuleVenvPath));
-        InstallFunction(setFunction, sessionState, VenvInstalledModuleHelperName, BuildVenvInstalledModuleHelperScript(escapedModuleVenvPath));
-        InstallFunction(setFunction, sessionState, VenvInstalledPSResourceHelperName, BuildVenvInstalledPSResourceHelperScript(escapedModuleVenvPath));
         InstallFunction(setFunction, sessionState, InstallModuleWrapperHelperName, BuildInstallModuleWrapperScript(escapedModuleVenvPath));
         InstallFunction(setFunction, sessionState, GetInstalledModuleWrapperHelperName, BuildGetInstalledModuleWrapperScript(escapedModuleVenvPath));
         InstallFunction(setFunction, sessionState, InstallPSResourceWrapperHelperName, BuildInstallPSResourceWrapperScript(escapedModuleVenvPath));
         InstallFunction(setFunction, sessionState, GetInstalledPSResourceWrapperHelperName, BuildGetInstalledPSResourceWrapperScript(escapedModuleVenvPath));
+        InstallFunction(setFunction, sessionState, GetModuleWrapperName, BuildGetModuleWrapperScript());
         InstallFunction(setFunction, sessionState, InstallModuleWrapperName, BuildInstallModuleWrapperScript(escapedModuleVenvPath));
         InstallFunction(setFunction, sessionState, GetInstalledModuleWrapperName, BuildGetInstalledModuleWrapperScript(escapedModuleVenvPath));
         InstallFunction(setFunction, sessionState, InstallPSResourceWrapperName, BuildInstallPSResourceWrapperScript(escapedModuleVenvPath));
