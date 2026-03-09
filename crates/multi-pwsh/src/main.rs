@@ -586,9 +586,7 @@ fn detect_implicit_host_selector(bin_dir: &Path, executable_path: &Path) -> Opti
         return None;
     }
 
-    if parse_alias_command_selector(&selector).is_none() {
-        return None;
-    }
+    parse_alias_command_selector(&selector)?;
 
     let parent = executable_path.parent()?;
     if !paths_refer_to_same_location(parent, bin_dir) {

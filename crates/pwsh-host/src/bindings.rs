@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+#[allow(clippy::missing_transmute_annotations)]
 mod bindings_generated;
 
 use std::ffi::{CStr, CString};
@@ -17,7 +18,7 @@ impl PowerShell {
         let handle = unsafe { (bindings.create_fn)() };
         Some(Self {
             inner: bindings,
-            handle: handle,
+            handle,
         })
     }
 
@@ -171,6 +172,10 @@ impl PowerShell {
         }
     }
 
+    /// # Safety
+    ///
+    /// `handle` must be a valid GC handle previously returned by the bindings layer,
+    /// and it must not be used again after this call returns.
     pub unsafe fn free_handle(&self, handle: PowerShellHandle) {
         unsafe {
             (self.inner.gc_handle_free_fn)(handle);

@@ -48,7 +48,7 @@ impl CliObject {
             name: name.map(|s| s.to_string()),
             values: value,
             ref_id: ref_id.map(|s| s.to_string()),
-            type_names: type_names,
+            type_names,
             string_repr: string_repr.map(|s| s.to_string()),
         }
     }
@@ -124,7 +124,7 @@ impl CliChar {
     pub fn new(name: Option<&str>, value: char) -> CliChar {
         CliChar {
             name: name.map(|s| s.to_string()),
-            value: value,
+            value,
         }
     }
 
@@ -151,7 +151,7 @@ impl CliBool {
     pub fn new(name: Option<&str>, value: bool) -> CliBool {
         CliBool {
             name: name.map(|s| s.to_string()),
-            value: value,
+            value,
         }
     }
 
@@ -176,7 +176,7 @@ impl CliDateTime {
     pub fn new(name: Option<&str>, value: DateTime) -> CliDateTime {
         CliDateTime {
             name: name.map(|s| s.to_string()),
-            value: value,
+            value,
         }
     }
 
@@ -201,7 +201,7 @@ impl CliDuration {
     pub fn new(name: Option<&str>, value: Duration) -> CliDuration {
         CliDuration {
             name: name.map(|s| s.to_string()),
-            value: value,
+            value,
         }
     }
 
@@ -225,7 +225,7 @@ impl CliUInt8 {
     pub fn new(name: Option<&str>, value: u8) -> CliUInt8 {
         CliUInt8 {
             name: name.map(|s| s.to_string()),
-            value: value,
+            value,
         }
     }
 
@@ -249,7 +249,7 @@ impl CliInt8 {
     pub fn new(name: Option<&str>, value: i8) -> CliInt8 {
         CliInt8 {
             name: name.map(|s| s.to_string()),
-            value: value,
+            value,
         }
     }
 
@@ -273,7 +273,7 @@ impl CliUInt16 {
     pub fn new(name: Option<&str>, value: u16) -> CliUInt16 {
         CliUInt16 {
             name: name.map(|s| s.to_string()),
-            value: value,
+            value,
         }
     }
 
@@ -297,7 +297,7 @@ impl CliInt16 {
     pub fn new(name: Option<&str>, value: i16) -> CliInt16 {
         CliInt16 {
             name: name.map(|s| s.to_string()),
-            value: value,
+            value,
         }
     }
 
@@ -321,7 +321,7 @@ impl CliUInt32 {
     pub fn new(name: Option<&str>, value: u32) -> CliUInt32 {
         CliUInt32 {
             name: name.map(|s| s.to_string()),
-            value: value,
+            value,
         }
     }
 
@@ -345,7 +345,7 @@ impl CliInt32 {
     pub fn new(name: Option<&str>, value: i32) -> CliInt32 {
         CliInt32 {
             name: name.map(|s| s.to_string()),
-            value: value,
+            value,
         }
     }
 
@@ -369,7 +369,7 @@ impl CliUInt64 {
     pub fn new(name: Option<&str>, value: u64) -> CliUInt64 {
         CliUInt64 {
             name: name.map(|s| s.to_string()),
-            value: value,
+            value,
         }
     }
 
@@ -393,7 +393,7 @@ impl CliInt64 {
     pub fn new(name: Option<&str>, value: i64) -> CliInt64 {
         CliInt64 {
             name: name.map(|s| s.to_string()),
-            value: value,
+            value,
         }
     }
 
@@ -417,7 +417,7 @@ impl CliFloat {
     pub fn new(name: Option<&str>, value: f32) -> CliFloat {
         CliFloat {
             name: name.map(|s| s.to_string()),
-            value: value,
+            value,
         }
     }
 
@@ -441,7 +441,7 @@ impl CliDouble {
     pub fn new(name: Option<&str>, value: f64) -> CliDouble {
         CliDouble {
             name: name.map(|s| s.to_string()),
-            value: value,
+            value,
         }
     }
 
@@ -465,7 +465,7 @@ impl CliDecimal {
     pub fn new(name: Option<&str>, value: d128) -> CliDecimal {
         CliDecimal {
             name: name.map(|s| s.to_string()),
-            value: value,
+            value,
         }
     }
 
@@ -489,7 +489,7 @@ impl CliBuffer {
     pub fn new(name: Option<&str>, value: Vec<u8>) -> CliBuffer {
         CliBuffer {
             name: name.map(|s| s.to_string()),
-            value: value,
+            value,
         }
     }
 
@@ -513,7 +513,7 @@ impl CliGuid {
     pub fn new(name: Option<&str>, value: Uuid) -> CliGuid {
         CliGuid {
             name: name.map(|s| s.to_string()),
-            value: value,
+            value,
         }
     }
 
@@ -537,7 +537,7 @@ impl CliUri {
     pub fn new(name: Option<&str>, value: Url) -> CliUri {
         CliUri {
             name: name.map(|s| s.to_string()),
-            value: value,
+            value,
         }
     }
 
@@ -654,7 +654,7 @@ pub enum CliValue {
 
 impl CliValue {
     pub fn get_name(&self) -> Option<&str> {
-        match &*self {
+        match self {
             CliValue::CliObject(prop) => prop.name.as_deref(),
             CliValue::CliNull(prop) => prop.name.as_deref(),
             CliValue::CliString(prop) => prop.name.as_deref(),
@@ -683,133 +683,103 @@ impl CliValue {
     }
 
     pub fn is_null(&self) -> bool {
-        match *self {
-            CliValue::CliNull(_) => true,
-            _ => false,
-        }
+        matches!(*self, CliValue::CliNull(_))
     }
 
     pub fn is_object(&self) -> bool {
-        match *self {
-            CliValue::CliObject(_) => true,
-            _ => false,
-        }
+        matches!(*self, CliValue::CliObject(_))
     }
 
     pub fn as_object(&self) -> Option<&CliObject> {
-        match &*self {
-            CliValue::CliObject(prop) => Some(&prop),
+        match self {
+            CliValue::CliObject(prop) => Some(prop),
             _ => None,
         }
     }
 
     pub fn is_string(&self) -> bool {
-        match *self {
-            CliValue::CliString(_) => true,
-            _ => false,
-        }
+        matches!(*self, CliValue::CliString(_))
     }
 
     pub fn as_str(&self) -> Option<&str> {
-        match &*self {
+        match self {
             CliValue::CliString(prop) => Some(&prop.value),
             _ => None,
         }
     }
 
     pub fn is_char(&self) -> bool {
-        match *self {
-            CliValue::CliChar(_) => true,
-            _ => false,
-        }
+        matches!(*self, CliValue::CliChar(_))
     }
 
     pub fn as_char(&self) -> Option<char> {
-        match &*self {
+        match self {
             CliValue::CliChar(prop) => Some(prop.value),
             _ => None,
         }
     }
 
     pub fn is_bool(&self) -> bool {
-        match *self {
-            CliValue::CliBool(_) => true,
-            _ => false,
-        }
+        matches!(*self, CliValue::CliBool(_))
     }
 
     pub fn as_bool(&self) -> Option<bool> {
-        match &*self {
+        match self {
             CliValue::CliBool(prop) => Some(prop.value),
             _ => None,
         }
     }
 
     pub fn is_datetime(&self) -> bool {
-        match *self {
-            CliValue::CliDateTime(_) => true,
-            _ => false,
-        }
+        matches!(*self, CliValue::CliDateTime(_))
     }
 
     pub fn as_datetime(&self) -> Option<&DateTime> {
-        match &*self {
+        match self {
             CliValue::CliDateTime(prop) => Some(&prop.value),
             _ => None,
         }
     }
 
     pub fn is_duration(&self) -> bool {
-        match *self {
-            CliValue::CliDuration(_) => true,
-            _ => false,
-        }
+        matches!(*self, CliValue::CliDuration(_))
     }
 
     pub fn as_duration(&self) -> Option<&Duration> {
-        match &*self {
+        match self {
             CliValue::CliDuration(prop) => Some(&prop.value),
             _ => None,
         }
     }
 
     pub fn is_uint8(&self) -> bool {
-        match *self {
-            CliValue::CliUInt8(_) => true,
-            _ => false,
-        }
+        matches!(*self, CliValue::CliUInt8(_))
     }
 
     pub fn as_u8(&self) -> Option<u8> {
-        match &*self {
+        match self {
             CliValue::CliUInt8(prop) => Some(prop.value),
             _ => None,
         }
     }
 
     pub fn is_int8(&self) -> bool {
-        match *self {
-            CliValue::CliInt8(_) => true,
-            _ => false,
-        }
+        matches!(*self, CliValue::CliInt8(_))
     }
 
     pub fn as_i8(&self) -> Option<i8> {
-        match &*self {
+        match self {
             CliValue::CliInt8(prop) => Some(prop.value),
             _ => None,
         }
     }
 
     pub fn is_uint16(&self) -> bool {
-        match *self {
-            CliValue::CliUInt16(_) => true,
-            _ => false,
-        }
+        matches!(*self, CliValue::CliUInt16(_))
     }
 
     pub fn as_u16(&self) -> Option<u16> {
-        match &*self {
+        match self {
             CliValue::CliUInt8(prop) => Some(prop.value as u16),
             CliValue::CliUInt16(prop) => Some(prop.value),
             _ => None,
@@ -817,14 +787,11 @@ impl CliValue {
     }
 
     pub fn is_int16(&self) -> bool {
-        match *self {
-            CliValue::CliInt16(_) => true,
-            _ => false,
-        }
+        matches!(*self, CliValue::CliInt16(_))
     }
 
     pub fn as_i16(&self) -> Option<i16> {
-        match &*self {
+        match self {
             CliValue::CliInt8(prop) => Some(prop.value as i16),
             CliValue::CliInt16(prop) => Some(prop.value),
             _ => None,
@@ -832,14 +799,11 @@ impl CliValue {
     }
 
     pub fn is_uint32(&self) -> bool {
-        match *self {
-            CliValue::CliUInt32(_) => true,
-            _ => false,
-        }
+        matches!(*self, CliValue::CliUInt32(_))
     }
 
     pub fn as_u32(&self) -> Option<u32> {
-        match &*self {
+        match self {
             CliValue::CliUInt8(prop) => Some(prop.value as u32),
             CliValue::CliUInt16(prop) => Some(prop.value as u32),
             CliValue::CliUInt32(prop) => Some(prop.value),
@@ -848,14 +812,11 @@ impl CliValue {
     }
 
     pub fn is_int32(&self) -> bool {
-        match *self {
-            CliValue::CliInt32(_) => true,
-            _ => false,
-        }
+        matches!(*self, CliValue::CliInt32(_))
     }
 
     pub fn as_i32(&self) -> Option<i32> {
-        match &*self {
+        match self {
             CliValue::CliInt8(prop) => Some(prop.value as i32),
             CliValue::CliInt16(prop) => Some(prop.value as i32),
             CliValue::CliInt32(prop) => Some(prop.value),
@@ -864,14 +825,11 @@ impl CliValue {
     }
 
     pub fn is_uint64(&self) -> bool {
-        match *self {
-            CliValue::CliUInt64(_) => true,
-            _ => false,
-        }
+        matches!(*self, CliValue::CliUInt64(_))
     }
 
     pub fn as_u64(&self) -> Option<u64> {
-        match &*self {
+        match self {
             CliValue::CliUInt8(prop) => Some(prop.value as u64),
             CliValue::CliUInt16(prop) => Some(prop.value as u64),
             CliValue::CliUInt32(prop) => Some(prop.value as u64),
@@ -881,14 +839,11 @@ impl CliValue {
     }
 
     pub fn is_int64(&self) -> bool {
-        match *self {
-            CliValue::CliInt64(_) => true,
-            _ => false,
-        }
+        matches!(*self, CliValue::CliInt64(_))
     }
 
     pub fn as_i64(&self) -> Option<i64> {
-        match &*self {
+        match self {
             CliValue::CliInt8(prop) => Some(prop.value as i64),
             CliValue::CliInt16(prop) => Some(prop.value as i64),
             CliValue::CliInt32(prop) => Some(prop.value as i64),
@@ -898,28 +853,22 @@ impl CliValue {
     }
 
     pub fn is_float(&self) -> bool {
-        match *self {
-            CliValue::CliFloat(_) => true,
-            _ => false,
-        }
+        matches!(*self, CliValue::CliFloat(_))
     }
 
     pub fn as_float(&self) -> Option<f32> {
-        match &*self {
+        match self {
             CliValue::CliFloat(prop) => Some(prop.value),
             _ => None,
         }
     }
 
     pub fn is_double(&self) -> bool {
-        match *self {
-            CliValue::CliDouble(_) => true,
-            _ => false,
-        }
+        matches!(*self, CliValue::CliDouble(_))
     }
 
     pub fn as_double(&self) -> Option<f64> {
-        match &*self {
+        match self {
             CliValue::CliFloat(prop) => Some(prop.value as f64),
             CliValue::CliDouble(prop) => Some(prop.value),
             _ => None,
@@ -927,98 +876,77 @@ impl CliValue {
     }
 
     pub fn is_decimal(&self) -> bool {
-        match *self {
-            CliValue::CliDecimal(_) => true,
-            _ => false,
-        }
+        matches!(*self, CliValue::CliDecimal(_))
     }
 
     pub fn as_d128(&self) -> Option<d128> {
-        match &*self {
+        match self {
             CliValue::CliDecimal(prop) => Some(prop.value),
             _ => None,
         }
     }
 
     pub fn is_buffer(&self) -> bool {
-        match *self {
-            CliValue::CliBuffer(_) => true,
-            _ => false,
-        }
+        matches!(*self, CliValue::CliBuffer(_))
     }
 
     pub fn as_bytes(&self) -> Option<&Vec<u8>> {
-        match &*self {
+        match self {
             CliValue::CliBuffer(prop) => Some(&prop.value),
             _ => None,
         }
     }
 
     pub fn is_guid(&self) -> bool {
-        match *self {
-            CliValue::CliGuid(_) => true,
-            _ => false,
-        }
+        matches!(*self, CliValue::CliGuid(_))
     }
 
     pub fn as_guid(&self) -> Option<&Uuid> {
-        match &*self {
+        match self {
             CliValue::CliGuid(prop) => Some(&prop.value),
             _ => None,
         }
     }
 
     pub fn is_uri(&self) -> bool {
-        match *self {
-            CliValue::CliUri(_) => true,
-            _ => false,
-        }
+        matches!(*self, CliValue::CliUri(_))
     }
 
     pub fn as_uri(&self) -> Option<&Url> {
-        match &*self {
+        match self {
             CliValue::CliUri(prop) => Some(&prop.value),
             _ => None,
         }
     }
 
     pub fn is_version(&self) -> bool {
-        match *self {
-            CliValue::CliVersion(_) => true,
-            _ => false,
-        }
+        matches!(*self, CliValue::CliVersion(_))
     }
 
     pub fn as_version(&self) -> Option<&str> {
-        match &*self {
+        match self {
             CliValue::CliVersion(prop) => Some(&prop.value),
             _ => None,
         }
     }
 
     pub fn is_xml_document(&self) -> bool {
-        match *self {
-            CliValue::CliXmlDocument(_) => true,
-            _ => false,
-        }
+        matches!(*self, CliValue::CliXmlDocument(_))
     }
 
     pub fn as_xml_document(&self) -> Option<&str> {
-        match &*self {
+        match self {
             CliValue::CliXmlDocument(prop) => Some(&prop.value),
             _ => None,
         }
     }
 
     pub fn is_script_block(&self) -> bool {
-        match *self {
-            CliValue::CliScriptBlock(_) => true,
-            _ => false,
-        }
+        matches!(*self, CliValue::CliScriptBlock(_))
     }
 
     pub fn as_script_block(&self) -> Option<&str> {
-        match &*self {
+        match self {
             CliValue::CliScriptBlock(prop) => Some(&prop.value),
             _ => None,
         }
@@ -1027,23 +955,23 @@ impl CliValue {
 
 fn try_get_ref_id_attr<B>(reader: &Reader<B>, event: &events::BytesStart) -> Option<String> {
     let attr = event.try_get_attribute("RefId").ok().unwrap()?;
-    let value = attr.decode_and_unescape_value(&reader).ok()?;
+    let value = attr.decode_and_unescape_value(reader).ok()?;
     Some(value.to_string())
 }
 
 fn try_get_name_attr<B>(reader: &Reader<B>, event: &events::BytesStart) -> Option<String> {
     let attr = event.try_get_attribute("N").ok().unwrap()?;
-    let value = attr.decode_and_unescape_value(&reader).ok()?;
+    let value = attr.decode_and_unescape_value(reader).ok()?;
     Some(decode_psrp_string(&value))
 }
 
-fn push_value(stack: &mut Vec<CliObject>, value: CliValue) {
+fn push_value(stack: &mut [CliObject], value: CliValue) {
     if let Some(current_obj) = stack.last_mut() {
         current_obj.values.push(value);
     }
 }
 
-fn push_object(stack: &mut Vec<CliObject>, objs: &mut Vec<CliObject>, obj: CliObject) {
+fn push_object(stack: &mut [CliObject], objs: &mut Vec<CliObject>, obj: CliObject) {
     if let Some(parent_obj) = stack.last_mut() {
         parent_obj.values.push(CliValue::CliObject(obj));
     } else {
@@ -1102,9 +1030,11 @@ pub fn parse_cli_xml(cli_xml: &str) -> Vec<CliObject> {
                 match event.name().as_ref() {
                     b"Objs" => {}
                     b"Obj" => {
-                        let mut obj = CliObject::default();
-                        obj.name = try_get_name_attr(&reader, &event);
-                        obj.ref_id = try_get_ref_id_attr(&reader, &event);
+                        let obj = CliObject {
+                            name: try_get_name_attr(&reader, &event),
+                            ref_id: try_get_ref_id_attr(&reader, &event),
+                            ..CliObject::default()
+                        };
                         object_stack.push(obj);
                     }
                     b"Ref" => {

@@ -56,12 +56,8 @@ fn main() {
             .join("startup-hook")
             .join("StartupHook.ModulePathOverride.cs"),
         dotnet_dir.join("startup-hook").join("StartupHook.NativePatch.cs"),
-        dotnet_dir
-            .join("startup-hook")
-            .join("StartupHook.PowerShellGet.cs"),
-        dotnet_dir
-            .join("startup-hook")
-            .join("StartupHook.PSResourceGet.cs"),
+        dotnet_dir.join("startup-hook").join("StartupHook.PowerShellGet.cs"),
+        dotnet_dir.join("startup-hook").join("StartupHook.PSResourceGet.cs"),
     ];
 
     println!("cargo:rerun-if-changed={}", bindings_project.display());
