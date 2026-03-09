@@ -101,7 +101,7 @@ fn run_shim_with_module_path_startup_hook(module_venv_path: &Path) -> Output {
         "$psResourceHookReady = $false;",
         "for ($i = 0; $i -lt 500; $i++) {",
         "  $command = Get-Command Get-InstalledPSResource -ErrorAction SilentlyContinue;",
-        "  if ($command -and ($command.CommandType -eq 'Function' -or $command.CommandType -eq 'Alias')) { $psResourceHookReady = $true; break };",
+        "  if ($command -and ($command.CommandType -eq 'Alias' -or $command.CommandType -eq 'Cmdlet')) { $psResourceHookReady = $true; break };",
         "  Start-Sleep -Milliseconds 10;",
         "};",
         "$powerShellGet = Get-Module PowerShellGet -ErrorAction Stop;",
@@ -192,11 +192,11 @@ fn module_path_is_the_default_startup_hook_behavior() {
     );
     assert_eq!(
         lines[6], "True",
-        "Get-InstalledPSResource should be replaced by an injected wrapper command"
+        "Get-InstalledPSResource should be replaced by an injected C# command"
     );
     assert!(
-        matches!(lines[7], "Function" | "Alias"),
-        "Get-InstalledPSResource should resolve to the injected wrapper command, got {}",
+        matches!(lines[7], "Alias" | "Cmdlet"),
+        "Get-InstalledPSResource should resolve to the injected C# command, got {}",
         lines[7]
     );
     assert_eq!(

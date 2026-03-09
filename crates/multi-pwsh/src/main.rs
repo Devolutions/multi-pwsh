@@ -224,32 +224,14 @@ fn escape_single_quoted_pwsh_literal(value: &str) -> String {
 fn virtual_environment_bootstrap_prelude() -> &'static str {
     concat!(
         "for ($__multiPwshAttempt = 0; $__multiPwshAttempt -lt 200; $__multiPwshAttempt++) { ",
+        "  $__multiPwshImportModule = Get-Command Import-Module -ErrorAction SilentlyContinue; ",
         "  $__multiPwshInstalledModule = Get-Command Get-InstalledModule -ErrorAction SilentlyContinue; ",
         "  $__multiPwshInstalledPsResource = Get-Command Get-InstalledPSResource -ErrorAction SilentlyContinue; ",
-        "  if ($__multiPwshInstalledModule -and ($__multiPwshInstalledModule.CommandType -eq 'Function' -or $__multiPwshInstalledModule.CommandType -eq 'Alias') -and ",
-        "      ($null -eq $__multiPwshInstalledPsResource -or $__multiPwshInstalledPsResource.CommandType -eq 'Function' -or $__multiPwshInstalledPsResource.CommandType -eq 'Alias')) { break }; ",
+        "  if ($__multiPwshImportModule -and $__multiPwshImportModule.CommandType -eq 'Alias' -and ",
+        "      $__multiPwshInstalledModule -and $__multiPwshInstalledModule.CommandType -eq 'Alias' -and ",
+        "      $__multiPwshInstalledPsResource -and $__multiPwshInstalledPsResource.CommandType -eq 'Alias') { break }; ",
         "  Start-Sleep -Milliseconds 10; ",
-        "}; ",
-        "Get-InstalledModule __multi_pwsh_venv_probe__ -ErrorAction SilentlyContinue | Out-Null; ",
-        "$__multiPwshInstalledPsResource = Get-Command Get-InstalledPSResource -ErrorAction SilentlyContinue; ",
-        "if ($__multiPwshInstalledPsResource -and ($__multiPwshInstalledPsResource.CommandType -eq 'Function' -or $__multiPwshInstalledPsResource.CommandType -eq 'Alias')) { ",
-        "  Get-InstalledPSResource __multi_pwsh_venv_probe__ -ErrorAction SilentlyContinue | Out-Null; ",
-        "}; ",
-        "function __multiPwshRestoreVenvCommands { ",
-        "  if (Test-Path Function:\\__PWSH_HOST_INSTALL_MODULE_WRAPPER) { Set-Item -Path Function:\\Install-Module -Value (Get-Item -Path Function:\\__PWSH_HOST_INSTALL_MODULE_WRAPPER).ScriptBlock -Force }; ",
-        "  if (Test-Path Function:\\__PWSH_HOST_GET_INSTALLED_MODULE_WRAPPER) { Set-Item -Path Function:\\Get-InstalledModule -Value (Get-Item -Path Function:\\__PWSH_HOST_GET_INSTALLED_MODULE_WRAPPER).ScriptBlock -Force }; ",
-        "  if (Test-Path Function:\\__PWSH_HOST_INSTALL_PSRESOURCE_WRAPPER) { Set-Item -Path Function:\\Install-PSResource -Value (Get-Item -Path Function:\\__PWSH_HOST_INSTALL_PSRESOURCE_WRAPPER).ScriptBlock -Force }; ",
-        "  if (Test-Path Function:\\__PWSH_HOST_GET_INSTALLED_PSRESOURCE_WRAPPER) { Set-Item -Path Function:\\Get-InstalledPSResource -Value (Get-Item -Path Function:\\__PWSH_HOST_GET_INSTALLED_PSRESOURCE_WRAPPER).ScriptBlock -Force }; ",
-        "}; ",
-        "function Import-Module { ",
-        "  [CmdletBinding(PositionalBinding=$false)] param([Parameter(Position=0, Mandatory=$true, ValueFromPipeline=$true, ValueFromPipelineByPropertyName=$true)][string[]]$Name, [Parameter(ValueFromPipelineByPropertyName=$true)][string]$Prefix, [Parameter(ValueFromPipelineByPropertyName=$true)][string]$MinimumVersion, [Parameter(ValueFromPipelineByPropertyName=$true)][string]$MaximumVersion, [Parameter(ValueFromPipelineByPropertyName=$true)][string]$RequiredVersion, [switch]$Global, [switch]$Force, [switch]$PassThru, [switch]$DisableNameChecking, [switch]$NoClobber); ",
-        "  $wrapperScriptBlock = (Get-Item -Path Function:\\Import-Module -ErrorAction SilentlyContinue).ScriptBlock; ",
-        "  Remove-Item -Path Function:\\Import-Module -Force -ErrorAction SilentlyContinue; ",
-        "  try { $result = Microsoft.PowerShell.Core\\Import-Module @PSBoundParameters } ",
-        "  finally { if ($wrapperScriptBlock) { Set-Item -Path Function:\\Import-Module -Value $wrapperScriptBlock -Force }; __multiPwshRestoreVenvCommands }; ",
-        "  $result ",
-        "}; ",
-        "__multiPwshRestoreVenvCommands; "
+        "}; "
     )
 }
 
@@ -1722,8 +1704,8 @@ mod tests {
         assert_eq!(options.pwsh_args[0], OsString::from("-Command"));
 
         let command = options.pwsh_args[1].to_string_lossy();
-        assert!(command.contains("Get-InstalledModule __multi_pwsh_venv_probe__"));
-        assert!(command.contains("Get-InstalledPSResource __multi_pwsh_venv_probe__"));
+        assert!(command.contains("Get-Command Import-Module -ErrorAction SilentlyContinue"));
+        assert!(command.contains("$__multiPwshImportModule.CommandType -eq 'Alias'"));
         assert!(command.contains("Get-InstalledModule Pester"));
     }
 

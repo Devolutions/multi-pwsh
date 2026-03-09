@@ -13,15 +13,16 @@ public static partial class StartupHook
     private const string LegacyForceModulePathProperty = "PWSH_STARTUP_HOOK_FORCE_PSMODULEPATH";
     private const string LogPathProperty = "PWSH_STARTUP_HOOK_LOG_PATH";
     private const string StrategyProperty = "PWSH_STARTUP_HOOK_STRATEGY";
-    private const string InstallModuleWrapperHelperName = "__PWSH_HOST_INSTALL_MODULE_WRAPPER";
-    private const string GetInstalledModuleWrapperHelperName = "__PWSH_HOST_GET_INSTALLED_MODULE_WRAPPER";
-    private const string InstallPSResourceWrapperHelperName = "__PWSH_HOST_INSTALL_PSRESOURCE_WRAPPER";
-    private const string GetInstalledPSResourceWrapperHelperName = "__PWSH_HOST_GET_INSTALLED_PSRESOURCE_WRAPPER";
-    private const string GetModuleWrapperName = "Get-Module";
-    private const string InstallModuleWrapperName = "Install-Module";
-    private const string GetInstalledModuleWrapperName = "Get-InstalledModule";
-    private const string InstallPSResourceWrapperName = "Install-PSResource";
-    private const string GetInstalledPSResourceWrapperName = "Get-InstalledPSResource";
+    private const string ImportModuleCmdletHelperName = "Import-PWSHHostModule";
+    private const string InstallModuleCmdletHelperName = "Install-PWSHHostModule";
+    private const string GetInstalledModuleCmdletHelperName = "Get-PWSHHostInstalledModule";
+    private const string InstallPSResourceCmdletHelperName = "Install-PWSHHostPSResource";
+    private const string GetInstalledPSResourceCmdletHelperName = "Get-PWSHHostInstalledPSResource";
+    private const string ImportModuleCommandName = "Import-Module";
+    private const string InstallModuleCommandName = "Install-Module";
+    private const string GetInstalledModuleCommandName = "Get-InstalledModule";
+    private const string InstallPSResourceCommandName = "Install-PSResource";
+    private const string GetInstalledPSResourceCommandName = "Get-InstalledPSResource";
 
     private static string? s_moduleVenvPath;
     private static string? s_logPath;
@@ -203,11 +204,11 @@ public static partial class StartupHook
             "EngineSessionState",
             BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!
             .GetValue(executionContext)!;
-        MethodInfo setFunction = sessionState.GetType().GetMethod(
-            "SetFunction",
+        MethodInfo addSessionStateEntry = sessionState.GetType().GetMethod(
+            "AddSessionStateEntry",
             BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
             binder: null,
-            types: new[] { typeof(string), typeof(ScriptBlock), typeof(bool) },
+            types: new[] { typeof(SessionStateCmdletEntry) },
             modifiers: null)!;
         MethodInfo setAliasValue = sessionState.GetType().GetMethod(
             "SetAliasValue",
@@ -216,26 +217,22 @@ public static partial class StartupHook
             types: new[] { typeof(string), typeof(string), typeof(ScopedItemOptions), typeof(bool), typeof(CommandOrigin) },
             modifiers: null)!;
 
-        string escapedModuleVenvPath = (s_moduleVenvPath ?? string.Empty).Replace("'", "''", StringComparison.Ordinal);
-        InstallFunction(setFunction, sessionState, InstallModuleWrapperHelperName, BuildInstallModuleWrapperScript(escapedModuleVenvPath));
-        InstallFunction(setFunction, sessionState, GetInstalledModuleWrapperHelperName, BuildGetInstalledModuleWrapperScript(escapedModuleVenvPath));
-        InstallFunction(setFunction, sessionState, InstallPSResourceWrapperHelperName, BuildInstallPSResourceWrapperScript(escapedModuleVenvPath));
-        InstallFunction(setFunction, sessionState, GetInstalledPSResourceWrapperHelperName, BuildGetInstalledPSResourceWrapperScript(escapedModuleVenvPath));
-        InstallFunction(setFunction, sessionState, GetModuleWrapperName, BuildGetModuleWrapperScript());
-        InstallFunction(setFunction, sessionState, InstallModuleWrapperName, BuildInstallModuleWrapperScript(escapedModuleVenvPath));
-        InstallFunction(setFunction, sessionState, GetInstalledModuleWrapperName, BuildGetInstalledModuleWrapperScript(escapedModuleVenvPath));
-        InstallFunction(setFunction, sessionState, InstallPSResourceWrapperName, BuildInstallPSResourceWrapperScript(escapedModuleVenvPath));
-        InstallFunction(setFunction, sessionState, GetInstalledPSResourceWrapperName, BuildGetInstalledPSResourceWrapperScript(escapedModuleVenvPath));
-        InstallAlias(setAliasValue, sessionState, InstallModuleWrapperName, InstallModuleWrapperHelperName);
-        InstallAlias(setAliasValue, sessionState, GetInstalledModuleWrapperName, GetInstalledModuleWrapperHelperName);
-        InstallAlias(setAliasValue, sessionState, InstallPSResourceWrapperName, InstallPSResourceWrapperHelperName);
-        InstallAlias(setAliasValue, sessionState, GetInstalledPSResourceWrapperName, GetInstalledPSResourceWrapperHelperName);
+        InstallCmdlet(addSessionStateEntry, sessionState, ImportModuleCmdletHelperName, typeof(StartupHookImportModuleCommand));
+        InstallCmdlet(addSessionStateEntry, sessionState, InstallModuleCmdletHelperName, typeof(StartupHookInstallModuleCommand));
+        InstallCmdlet(addSessionStateEntry, sessionState, GetInstalledModuleCmdletHelperName, typeof(StartupHookGetInstalledModuleCommand));
+        InstallCmdlet(addSessionStateEntry, sessionState, InstallPSResourceCmdletHelperName, typeof(StartupHookInstallPSResourceCommand));
+        InstallCmdlet(addSessionStateEntry, sessionState, GetInstalledPSResourceCmdletHelperName, typeof(StartupHookGetInstalledPSResourceCommand));
+        InstallAlias(setAliasValue, sessionState, ImportModuleCommandName, ImportModuleCmdletHelperName);
+        InstallAlias(setAliasValue, sessionState, InstallModuleCommandName, InstallModuleCmdletHelperName);
+        InstallAlias(setAliasValue, sessionState, GetInstalledModuleCommandName, GetInstalledModuleCmdletHelperName);
+        InstallAlias(setAliasValue, sessionState, InstallPSResourceCommandName, InstallPSResourceCmdletHelperName);
+        InstallAlias(setAliasValue, sessionState, GetInstalledPSResourceCommandName, GetInstalledPSResourceCmdletHelperName);
     }
 
-    private static void InstallFunction(MethodInfo setFunction, object sessionState, string functionName, string script)
+    private static void InstallCmdlet(MethodInfo addSessionStateEntry, object sessionState, string commandName, Type implementingType)
     {
-        ScriptBlock scriptBlock = ScriptBlock.Create(script);
-        _ = setFunction.Invoke(sessionState, new object[] { functionName, scriptBlock, true });
+        SessionStateCmdletEntry entry = new(commandName, implementingType, helpFileName: null);
+        _ = addSessionStateEntry.Invoke(sessionState, new object[] { entry });
     }
 
     private static void InstallAlias(MethodInfo setAliasValue, object sessionState, string aliasName, string targetName)

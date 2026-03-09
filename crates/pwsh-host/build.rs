@@ -49,11 +49,19 @@ fn main() {
         .join("Devolutions.PowerShell.SDK.StartupHook.csproj");
     let startup_hook_sources = [
         dotnet_dir.join("startup-hook").join("StartupHook.cs"),
-        dotnet_dir.join("startup-hook").join("StartupHook.Scripts.cs"),
+        dotnet_dir
+            .join("startup-hook")
+            .join("StartupHook.ModuleManagementCmdlets.cs"),
         dotnet_dir
             .join("startup-hook")
             .join("StartupHook.ModulePathOverride.cs"),
         dotnet_dir.join("startup-hook").join("StartupHook.NativePatch.cs"),
+        dotnet_dir
+            .join("startup-hook")
+            .join("StartupHook.PowerShellGet.cs"),
+        dotnet_dir
+            .join("startup-hook")
+            .join("StartupHook.PSResourceGet.cs"),
     ];
 
     println!("cargo:rerun-if-changed={}", bindings_project.display());
