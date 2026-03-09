@@ -9,6 +9,8 @@ using System.Reflection;
 public static partial class StartupHook
 {
     private static readonly object s_powerShellGetPatchLock = new();
+    private const string PowerShellGetTestModuleInstalledAliasName = "Test-ModuleInstalled";
+    private const string PowerShellGetTestModuleInstalledCmdletName = "Test-PWSHHostModuleInstalled";
 
     public static void EnsurePowerShellGetVenvPatched()
     {
@@ -355,14 +357,59 @@ public static partial class StartupHook
         variables.Set("PSGetInstalledModules", null);
 
         object internalSessionState = GetInternalSessionState(moduleSessionState);
-        MethodInfo setFunction = internalSessionState.GetType().GetMethod(
-            "SetFunction",
+        MethodInfo addCmdletEntry = internalSessionState.GetType().GetMethod(
+            "AddSessionStateEntry",
             BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
             binder: null,
-            types: new[] { typeof(string), typeof(ScriptBlock), typeof(bool) },
+            types: new[] { typeof(SessionStateCmdletEntry) },
             modifiers: null)!;
-        ScriptBlock scriptBlock = moduleSessionState.InvokeCommand.NewScriptBlock(BuildPowerShellGetTestModuleInstalledScript());
-        _ = setFunction.Invoke(internalSessionState, new object[] { "Test-ModuleInstalled", scriptBlock, true });
+        MethodInfo getCmdlet = internalSessionState.GetType().GetMethod(
+            "GetCmdlet",
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+            binder: null,
+            types: new[] { typeof(string), typeof(CommandOrigin) },
+            modifiers: null)!;
+        MethodInfo getFunction = internalSessionState.GetType().GetMethod(
+            "GetFunction",
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+            binder: null,
+            types: new[] { typeof(string), typeof(CommandOrigin) },
+            modifiers: null)!;
+        MethodInfo removeFunction = internalSessionState.GetType().GetMethod(
+            "RemoveFunction",
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+            binder: null,
+            types: new[] { typeof(string), typeof(bool), typeof(CommandOrigin) },
+            modifiers: null)!;
+        MethodInfo setAliasValue = internalSessionState.GetType().GetMethod(
+            "SetAliasValue",
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+            binder: null,
+            types: new[] { typeof(string), typeof(string), typeof(ScopedItemOptions), typeof(bool), typeof(CommandOrigin) },
+            modifiers: null)!;
+
+        if (getCmdlet.Invoke(internalSessionState, new object[] { PowerShellGetTestModuleInstalledCmdletName, CommandOrigin.Internal }) is null)
+        {
+            SessionStateCmdletEntry entry = new(PowerShellGetTestModuleInstalledCmdletName, typeof(StartupHookTestModuleInstalledCommand), helpFileName: null);
+            _ = addCmdletEntry.Invoke(internalSessionState, new object[] { entry });
+        }
+
+        if (getFunction.Invoke(internalSessionState, new object[] { PowerShellGetTestModuleInstalledAliasName, CommandOrigin.Internal }) is not null)
+        {
+            _ = removeFunction.Invoke(internalSessionState, new object[] { PowerShellGetTestModuleInstalledAliasName, true, CommandOrigin.Internal });
+        }
+
+        _ = setAliasValue.Invoke(
+            internalSessionState,
+            new object[]
+            {
+                PowerShellGetTestModuleInstalledAliasName,
+                PowerShellGetTestModuleInstalledCmdletName,
+                ScopedItemOptions.None,
+                true,
+                CommandOrigin.Internal,
+            }
+        );
     }
 
     public static IEnumerable<PSModuleInfo> InvokePowerShellGetTestModuleInstalled(string name, string? requiredVersion)
@@ -427,16 +474,6 @@ public static partial class StartupHook
         return result;
     }
 
-    private static string BuildPowerShellGetTestModuleInstalledScript()
-    {
-        return "[CmdletBinding(PositionalBinding=$false)]\n" +
-               "param(\n" +
-               "    [Parameter(Mandatory=$true)][ValidateNotNullOrEmpty()][string]$Name,\n" +
-               "    [Parameter()][string]$RequiredVersion\n" +
-               ")\n" +
-               "[StartupHook]::InvokePowerShellGetTestModuleInstalled($Name, $RequiredVersion)";
-    }
-
     private static PowerShell CreatePowerShell(Runspace? runspace)
     {
         PowerShell powerShell = PowerShell.Create();
@@ -472,6 +509,26 @@ public static partial class StartupHook
         }
     }
 
+
+[Cmdlet("Test", "PWSHHostModuleInstalled")]
+[OutputType(typeof(PSModuleInfo))]
+public sealed class StartupHookTestModuleInstalledCommand : PSCmdlet
+{
+    [Parameter(Mandatory = true)]
+    [ValidateNotNullOrEmpty]
+    public string Name { get; set; } = string.Empty;
+
+    [Parameter]
+    public string? RequiredVersion { get; set; }
+
+    protected override void ProcessRecord()
+    {
+        foreach (PSModuleInfo module in StartupHook.InvokePowerShellGetTestModuleInstalled(Name, RequiredVersion))
+        {
+            WriteObject(module);
+        }
+    }
+}
     private static bool ModuleVersionMatches(
         PSModuleInfo module,
         string? minimumVersion,
