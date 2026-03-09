@@ -267,9 +267,7 @@ fn inject_virtual_environment_command_bootstrap(args: Vec<OsString>) -> Vec<OsSt
     rewritten
 }
 
-fn rewrite_virtual_environment_stdin_file(
-    args: Vec<OsString>,
-) -> Result<(Vec<OsString>, Option<tempfile::NamedTempFile>)> {
+fn rewrite_virtual_environment_stdin_file(args: Vec<OsString>) -> Result<(Vec<OsString>, Option<tempfile::TempPath>)> {
     let mut rewritten = args;
 
     for index in 0..rewritten.len() {
@@ -296,8 +294,9 @@ fn rewrite_virtual_environment_stdin_file(
         script_file.write_all(user_script.as_bytes())?;
         script_file.flush()?;
 
-        rewritten[index + 1] = script_file.path().as_os_str().to_os_string();
-        return Ok((rewritten, Some(script_file)));
+        let script_path = script_file.into_temp_path();
+        rewritten[index + 1] = script_path.as_os_str().to_os_string();
+        return Ok((rewritten, Some(script_path)));
     }
 
     Ok((rewritten, None))
