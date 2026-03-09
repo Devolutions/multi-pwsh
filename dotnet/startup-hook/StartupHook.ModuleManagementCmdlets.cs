@@ -610,21 +610,52 @@ public sealed class StartupHookInstallPSResourceCommand : PSCmdlet
     [Parameter(ParameterSetName = "InputObjectParameterSet", Mandatory = true, Position = 0, ValueFromPipeline = true, ValueFromPipelineByPropertyName = true)]
     public PSObject[]? InputObject { get; set; }
 
+    [Parameter]
     public string? Version { get; set; }
+
+    [Parameter]
     public string[]? Repository { get; set; }
+
+    [Parameter]
     public PSCredential? Credential { get; set; }
+
+    [Parameter]
     public string? Scope { get; set; }
+
+    [Parameter]
     public SwitchParameter TrustRepository { get; set; }
+
+    [Parameter]
     public SwitchParameter Quiet { get; set; }
+
+    [Parameter]
     public SwitchParameter Prerelease { get; set; }
+
+    [Parameter]
     public SwitchParameter Reinstall { get; set; }
+
+    [Parameter]
     public SwitchParameter NoClobber { get; set; }
+
+    [Parameter]
     public SwitchParameter AcceptLicense { get; set; }
+
+    [Parameter]
     public SwitchParameter PassThru { get; set; }
+
+    [Parameter]
     public SwitchParameter SkipDependencyCheck { get; set; }
+
+    [Parameter]
     public SwitchParameter AuthenticodeCheck { get; set; }
+
+    [Parameter]
     public string? TemporaryPath { get; set; }
+
+    [Parameter]
     public object? RequiredResource { get; set; }
+
+    [Parameter]
     public string? RequiredResourceFile { get; set; }
 
     protected override void ProcessRecord()
@@ -636,26 +667,38 @@ public sealed class StartupHookInstallPSResourceCommand : PSCmdlet
             powerShell.AddParameter(entry.Key, entry.Value);
         }
 
+        if (!MyInvocation.BoundParameters.ContainsKey("WarningAction"))
+        {
+            // Native PSResourceGet may warn about global installs even in venv mode.
+            powerShell.AddParameter("WarningAction", ActionPreference.SilentlyContinue);
+        }
+
         PSObject[] nativeResults = powerShell.Invoke().ToArray();
+        IEnumerable<PSObject> completedInstallResources = StartupHook.CompleteInstallPSResourceForVenv(
+            nativeResults,
+            Name,
+            InputObject,
+            Version,
+            Repository,
+            Credential,
+            TrustRepository.IsPresent,
+            Quiet.IsPresent,
+            Prerelease.IsPresent,
+            AcceptLicense.IsPresent,
+            SkipDependencyCheck.IsPresent,
+            AuthenticodeCheck.IsPresent,
+            TemporaryPath);
+
         if (!PassThru)
         {
+            foreach (PSObject _ in completedInstallResources)
+            {
+            }
+
             return;
         }
 
-        foreach (PSObject resource in StartupHook.CompleteInstallPSResourceForVenv(
-                     nativeResults,
-                     Name,
-                     InputObject,
-                     Version,
-                     Repository,
-                     Credential,
-                     TrustRepository.IsPresent,
-                     Quiet.IsPresent,
-                     Prerelease.IsPresent,
-                     AcceptLicense.IsPresent,
-                     SkipDependencyCheck.IsPresent,
-                     AuthenticodeCheck.IsPresent,
-                     TemporaryPath))
+        foreach (PSObject resource in completedInstallResources)
         {
             WriteObject(resource);
         }
