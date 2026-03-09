@@ -381,7 +381,11 @@ public static partial class StartupHook
         AddObjectParameter(powerShell, "Credential", credential);
         AddStringParameter(powerShell, "TemporaryPath", temporaryPath);
         AddSwitchParameter(powerShell, "TrustRepository", trustRepository);
-        AddSwitchParameter(powerShell, "Quiet", quiet);
+        AddSwitchParameterIfSupported(
+            powerShell,
+            "Microsoft.PowerShell.PSResourceGet\\Save-PSResource",
+            "Quiet",
+            quiet);
         AddSwitchParameter(powerShell, "Prerelease", prerelease);
         AddSwitchParameter(powerShell, "AcceptLicense", acceptLicense);
         AddSwitchParameter(powerShell, "SkipDependencyCheck", skipDependencyCheck);
@@ -411,7 +415,11 @@ public static partial class StartupHook
         AddObjectParameter(powerShell, "Credential", credential);
         AddStringParameter(powerShell, "TemporaryPath", temporaryPath);
         AddSwitchParameter(powerShell, "TrustRepository", trustRepository);
-        AddSwitchParameter(powerShell, "Quiet", quiet);
+        AddSwitchParameterIfSupported(
+            powerShell,
+            "Microsoft.PowerShell.PSResourceGet\\Save-PSResource",
+            "Quiet",
+            quiet);
         AddSwitchParameter(powerShell, "Prerelease", prerelease);
         AddSwitchParameter(powerShell, "AcceptLicense", acceptLicense);
         AddSwitchParameter(powerShell, "SkipDependencyCheck", skipDependencyCheck);
@@ -443,5 +451,37 @@ public static partial class StartupHook
         {
             powerShell.AddParameter(name);
         }
+    }
+
+    private static void AddSwitchParameterIfSupported(
+        PowerShell powerShell,
+        string commandName,
+        string parameterName,
+        bool value)
+    {
+        if (!value)
+        {
+            return;
+        }
+
+        if (CommandSupportsParameter(commandName, parameterName))
+        {
+            powerShell.AddParameter(parameterName);
+        }
+    }
+
+    private static bool CommandSupportsParameter(string commandName, string parameterName)
+    {
+        using PowerShell commandLookup = PowerShell.Create(RunspaceMode.CurrentRunspace);
+        commandLookup.AddCommand("Microsoft.PowerShell.Core\\Get-Command");
+        commandLookup.AddParameter("Name", commandName);
+
+        CommandInfo? commandInfo = commandLookup.Invoke<CommandInfo>().FirstOrDefault();
+        if (commandInfo is null)
+        {
+            return false;
+        }
+
+        return commandInfo.Parameters.ContainsKey(parameterName);
     }
 }

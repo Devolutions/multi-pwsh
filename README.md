@@ -101,19 +101,19 @@ Use the local Pester harness to validate venv-sensitive cmdlet behavior across i
 Run all installed version aliases:
 
 ```powershell
-pwsh -NoLogo -NoProfile -NonInteractive -File .\scripts\Invoke-VenvCmdletMatrix.ps1
+pwsh -NoLogo -NoProfile -NonInteractive -File .\tests\Invoke-VenvTestMatrix.ps1
 ```
 
 Run one alias only:
 
 ```powershell
-pwsh -NoLogo -NoProfile -NonInteractive -File .\scripts\Invoke-VenvCmdletMatrix.ps1 -Aliases pwsh-7.4.13
+pwsh -NoLogo -NoProfile -NonInteractive -File .\tests\Invoke-VenvTestMatrix.ps1 -Aliases pwsh-7.4.13
 ```
 
 Include online install tests (`Install-PSResource` / `Install-Module`):
 
 ```powershell
-pwsh -NoLogo -NoProfile -NonInteractive -File .\scripts\Invoke-VenvCmdletMatrix.ps1 -EnableOnlineTests
+pwsh -NoLogo -NoProfile -NonInteractive -File .\tests\Invoke-VenvTestMatrix.ps1 -EnableOnlineTests
 ```
 
 Online mode details:
@@ -126,6 +126,8 @@ Notes:
 
 - The runner creates a temporary venv per alias and deletes it by default.
 - Use `-KeepVenv` to keep those venvs for troubleshooting.
+- The runner stops on the first failed alias by default.
+- Use `-ContinueOnFailure` to keep running remaining aliases after a failure.
 - Pester must be available in the host PowerShell session.
 
 Selector behavior:

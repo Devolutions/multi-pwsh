@@ -10,6 +10,9 @@ param(
     [switch]$KeepVenv,
 
     [Parameter(Mandatory = $false)]
+    [switch]$ContinueOnFailure,
+
+    [Parameter(Mandatory = $false)]
     [string]$VenvPrefix = 'pester-venv'
 )
 
@@ -87,6 +90,7 @@ New-Item -ItemType Directory -Path $venvRoot -Force | Out-Null
 
 $results = New-Object System.Collections.Generic.List[object]
 $failedAliases = New-Object System.Collections.Generic.List[string]
+$stopOnFirstFailure = -not $ContinueOnFailure.IsPresent
 
 foreach ($aliasName in $resolvedAliases) {
     $sanitizedAlias = ($aliasName -replace '[^A-Za-z0-9]+', '-').Trim('-')
@@ -95,6 +99,8 @@ foreach ($aliasName in $resolvedAliases) {
 
     Write-Host "`n=== [$aliasName] creating venv '$venvName' ===" -ForegroundColor Cyan
     & multi-pwsh venv create $venvName | Out-Host
+
+    $shouldStopAfterCurrentAlias = $false
 
     try {
         $container = New-PesterContainer -Path $testPath -Data @{
@@ -116,6 +122,10 @@ foreach ($aliasName in $resolvedAliases) {
 
         if ($run.FailedCount -gt 0) {
             $failedAliases.Add($aliasName)
+
+            if ($stopOnFirstFailure) {
+                $shouldStopAfterCurrentAlias = $true
+            }
         }
     }
     finally {
@@ -125,6 +135,11 @@ foreach ($aliasName in $resolvedAliases) {
         else {
             Write-Host "Keeping venv: $venvPath" -ForegroundColor Yellow
         }
+    }
+
+    if ($shouldStopAfterCurrentAlias) {
+        Write-Warning ("Stopping matrix after first failed alias: {0}" -f $aliasName)
+        break
     }
 }
 

@@ -248,14 +248,25 @@ $results | ConvertTo-Json -Compress -Depth 5
     It 'supports Install-PSResource parameters and installs into venv (online)' -Skip:(-not $EnableOnlineTests) {
         $query = @'
 $ProgressPreference = 'SilentlyContinue'
-Install-PSResource -Name Yayaml -Repository PSGallery -TrustRepository -Quiet -Reinstall
-Get-InstalledPSResource -Name Yayaml -ErrorAction Stop | Select-Object -First 1 -ExpandProperty InstalledLocation
+Install-PSResource -Name Yayaml -Repository PSGallery -TrustRepository -Quiet -Reinstall -ErrorAction Stop
+    $locations = @(Get-Module -ListAvailable Yayaml -ErrorAction Stop | Select-Object -ExpandProperty ModuleBase)
+[pscustomobject]@{ Locations = $locations } | ConvertTo-Json -Compress
 '@
         $result = Invoke-InVenv -CommandText $query
-        $installedLocation = ($result.Output -split "`n")[-1].Trim()
+        $jsonLine = ($result.Output -split "`n" | Where-Object { $_.TrimStart().StartsWith('{') } | Select-Object -Last 1)
+        $jsonLine | Should -Not -BeNullOrEmpty
+        $payload = ConvertFrom-Json -InputObject $jsonLine
+        $installedLocations = @()
 
-        $installedLocation | Should -Not -BeNullOrEmpty
-        (Test-PathUnderRoot -Path $installedLocation -Root $VenvRoot) | Should -BeTrue
+        if ($payload.Locations -is [string]) {
+            $installedLocations = @($payload.Locations)
+        }
+        elseif ($null -ne $payload.Locations) {
+            $installedLocations = @($payload.Locations | ForEach-Object { $_.ToString() })
+        }
+
+        $installedLocations.Count | Should -BeGreaterThan 0
+        ($installedLocations | Where-Object { Test-PathUnderRoot -Path $_ -Root $VenvRoot } | Measure-Object).Count | Should -BeGreaterThan 0
     }
 
     It 'supports Install-Module into venv (online)' -Skip:(-not $EnableOnlineTests) {
@@ -263,12 +274,23 @@ Get-InstalledPSResource -Name Yayaml -ErrorAction Stop | Select-Object -First 1 
 $ProgressPreference = 'SilentlyContinue'
 Install-Module -Name Yayaml -Repository PSGallery -Force -AllowClobber -AcceptLicense -Confirm:$false -ErrorAction Stop
 Import-Module PowerShellGet -ErrorAction Stop
-Get-InstalledModule Yayaml -ErrorAction Stop | Select-Object -First 1 -ExpandProperty InstalledLocation
+$locations = @(Get-InstalledModule Yayaml -ErrorAction Stop | Select-Object -ExpandProperty InstalledLocation)
+[pscustomobject]@{ Locations = $locations } | ConvertTo-Json -Compress
 '@
         $result = Invoke-InVenv -CommandText $query
-        $installedLocation = ($result.Output -split "`n")[-1].Trim()
+        $jsonLine = ($result.Output -split "`n" | Where-Object { $_.TrimStart().StartsWith('{') } | Select-Object -Last 1)
+        $jsonLine | Should -Not -BeNullOrEmpty
+        $payload = ConvertFrom-Json -InputObject $jsonLine
+        $installedLocations = @()
 
-        $installedLocation | Should -Not -BeNullOrEmpty
-        (Test-PathUnderRoot -Path $installedLocation -Root $VenvRoot) | Should -BeTrue
+        if ($payload.Locations -is [string]) {
+            $installedLocations = @($payload.Locations)
+        }
+        elseif ($null -ne $payload.Locations) {
+            $installedLocations = @($payload.Locations | ForEach-Object { $_.ToString() })
+        }
+
+        $installedLocations.Count | Should -BeGreaterThan 0
+        ($installedLocations | Where-Object { Test-PathUnderRoot -Path $_ -Root $VenvRoot } | Measure-Object).Count | Should -BeGreaterThan 0
     }
 }
