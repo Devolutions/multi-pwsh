@@ -383,6 +383,7 @@ public sealed class StartupHookInstallModuleCommand : PSCmdlet
     [Parameter(ValueFromPipelineByPropertyName = true)]
     public PSCredential? Credential { get; set; }
 
+    [Parameter(ValueFromPipelineByPropertyName = true)]
     public string? Scope { get; set; }
 
     [Parameter(ValueFromPipelineByPropertyName = true)]
@@ -391,14 +392,22 @@ public sealed class StartupHookInstallModuleCommand : PSCmdlet
     [Parameter(ValueFromPipelineByPropertyName = true)]
     public PSCredential? ProxyCredential { get; set; }
 
+    [Parameter]
     public SwitchParameter AllowClobber { get; set; }
+
+    [Parameter]
     public SwitchParameter SkipPublisherCheck { get; set; }
+
+    [Parameter]
     public SwitchParameter Force { get; set; }
 
     [Parameter(ParameterSetName = "NameParameterSet")]
     public SwitchParameter AllowPrerelease { get; set; }
 
+    [Parameter]
     public SwitchParameter AcceptLicense { get; set; }
+
+    [Parameter]
     public SwitchParameter PassThru { get; set; }
 
     protected override void ProcessRecord()
@@ -450,7 +459,10 @@ public sealed class StartupHookGetInstalledModuleCommand : PSCmdlet
     [Parameter(ValueFromPipelineByPropertyName = true)]
     public string? MaximumVersion { get; set; }
 
+    [Parameter]
     public SwitchParameter AllVersions { get; set; }
+
+    [Parameter]
     public SwitchParameter AllowPrerelease { get; set; }
 
     protected override void ProcessRecord()

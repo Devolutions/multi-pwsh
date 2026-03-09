@@ -16,7 +16,29 @@ public static partial class StartupHook
     {
         lock (s_powerShellGetPatchLock)
         {
-            EnsurePowerShellGetVenvPatchedCore(runspace: null);
+            string? moduleVenvPath = GetModuleVenvPath();
+            if (string.IsNullOrWhiteSpace(moduleVenvPath))
+            {
+                return;
+            }
+
+            PSModuleInfo? module = GetLiveModuleFromCurrentRunspace("PowerShellGet");
+            if (module is null)
+            {
+                Dictionary<string, object> importParameters = new(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Name"] = new[] { "PowerShellGet" },
+                    ["ErrorAction"] = ActionPreference.Stop,
+                };
+
+                module = InvokeImportModule(importParameters).FirstOrDefault();
+                module = GetLiveModuleFromCurrentRunspace("PowerShellGet") ?? module;
+            }
+
+            if (module is not null)
+            {
+                PatchPowerShellGetModuleSessionState(module, moduleVenvPath);
+            }
         }
     }
 
@@ -34,7 +56,7 @@ public static partial class StartupHook
         }
     }
 
-    private static void EnsurePowerShellGetVenvPatched(Runspace runspace)
+    private static void EnsurePowerShellGetVenvPatched(Runspace? runspace)
     {
         lock (s_powerShellGetPatchLock)
         {

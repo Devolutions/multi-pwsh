@@ -281,6 +281,36 @@ fn query_installed_module_location_after_powershellget_import(
     normalize_output(&output.stdout)
 }
 
+fn install_module_without_powershellget_import(
+    home: &Path,
+    selector: &str,
+    venv: &str,
+    module_name: &str,
+    repository_name: &str,
+) -> Output {
+    let command = format!(
+        "$ProgressPreference = 'SilentlyContinue'; \
+         Install-Module {} -Repository {} -Force -ErrorAction Stop",
+        quote_pwsh_literal(module_name),
+        quote_pwsh_literal(repository_name)
+    );
+
+    run_multi_pwsh(
+        &[
+            "host",
+            selector,
+            "-venv",
+            venv,
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            &command,
+        ],
+        home,
+    )
+}
+
 fn query_installed_psresource_location_after_import(
     home: &Path,
     selector: &str,
@@ -715,6 +745,55 @@ fn host_venv_import_module_powershellget_keeps_get_installed_module_venv_aware()
     assert!(
         output_contains_module_base_under(&[installed_location], &venv_root),
         "expected explicit PowerShellGet import to preserve venv-installed module discovery"
+    );
+}
+
+#[test]
+fn host_venv_install_module_without_powershellget_import_reaches_repository_lookup() {
+    let temp_dir = TempDir::new().expect("failed to create temp dir");
+    let (version, pwsh_install_dir) = discover_pwsh_install();
+
+    let managed_version_dir = temp_dir.path().join("multi").join(&version);
+    std::fs::create_dir_all(managed_version_dir.parent().expect("missing version dir parent"))
+        .expect("failed to create managed multi dir");
+    link_directory(&managed_version_dir, &pwsh_install_dir);
+
+    let output = run_multi_pwsh(&["venv", "create", "yaml-install"], temp_dir.path());
+    assert!(
+        output.status.success(),
+        "failed to create venv: {}",
+        normalize_output(&output.stderr)
+    );
+
+    let output = install_module_without_powershellget_import(
+        temp_dir.path(),
+        &version,
+        "yaml-install",
+        "__multi_pwsh_missing_module__",
+        "PSGallery",
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected Install-Module to fail for a fake repository module name"
+    );
+
+    let stderr = normalize_output(&output.stderr);
+
+    assert!(
+        stderr.contains("No match was found"),
+        "expected Install-Module without an explicit PowerShellGet import to reach repository lookup, got: {}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("could not be loaded"),
+        "did not expect a PowerShellGet module load failure, got: {}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("pipeline is already running"),
+        "did not expect a nested pipeline failure, got: {}",
+        stderr
     );
 }
 
