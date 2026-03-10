@@ -2,7 +2,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$Command,
 
-    [string]$PipeName = ("pwsh-host-cli-" + [Guid]::NewGuid().ToString("N")),
+    [string]$PipeName = ("pwsh-host-" + [Guid]::NewGuid().ToString("N")),
 
     [int]$ConnectTimeoutMs = 10000
 )

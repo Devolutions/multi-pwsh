@@ -1,6 +1,6 @@
 [workspace]
-members = ["crates/pwsh-host", "crates/pwsh-host-cli", "crates/multi-pwsh"]
-default-members = ["crates/pwsh-host", "crates/pwsh-host-cli", "crates/multi-pwsh"]
+members = ["crates/pwsh-host", "crates/multi-pwsh"]
+default-members = ["crates/pwsh-host", "crates/multi-pwsh"]
 
 [profile.release]
 opt-level = "z"
