@@ -12,6 +12,7 @@ pub struct InstallLayout {
     bin_dir: PathBuf,
     cache_dir: PathBuf,
     venvs_dir: PathBuf,
+    versions_dir: PathBuf,
     os: HostOs,
 }
 
@@ -30,12 +31,33 @@ impl InstallLayout {
         let venvs_dir = env::var_os("MULTI_PWSH_VENV_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|| home.join("venv"));
+        let versions_dir = home.join("multi");
 
         Ok(InstallLayout {
             home,
             bin_dir,
             cache_dir,
             venvs_dir,
+            versions_dir,
+            os,
+        })
+    }
+
+    pub fn from_root(os: HostOs, home: PathBuf) -> Result<Self> {
+        Self::from_root_with_versions_dir(os, home.clone(), home.join("multi"))
+    }
+
+    pub fn from_root_with_versions_dir(os: HostOs, home: PathBuf, versions_dir: PathBuf) -> Result<Self> {
+        let bin_dir = home.join("bin");
+        let cache_dir = home.join("cache");
+        let venvs_dir = home.join("venv");
+
+        Ok(InstallLayout {
+            home,
+            bin_dir,
+            cache_dir,
+            venvs_dir,
+            versions_dir,
             os,
         })
     }
@@ -65,7 +87,7 @@ impl InstallLayout {
     }
 
     pub fn versions_dir(&self) -> PathBuf {
-        self.home.join("multi")
+        self.versions_dir.clone()
     }
 
     pub fn preferred_version_dir(&self, version: &Version) -> PathBuf {
@@ -316,5 +338,46 @@ mod tests {
             let layout = InstallLayout::new(HostOs::Linux).unwrap();
             assert_eq!(layout.installed_versions().unwrap(), vec![new_version, legacy_version]);
         });
+    }
+
+    #[test]
+    fn from_root_ignores_multi_pwsh_env_overrides() {
+        let temp_dir = TempDir::new().unwrap();
+        let explicit_home = temp_dir.path().join("package-root");
+        let ignored_home = temp_dir.path().join("ignored-home");
+        let overridden_bin = temp_dir.path().join("override-bin");
+        let overridden_cache = temp_dir.path().join("override-cache");
+        let overridden_venv = temp_dir.path().join("override-venv");
+
+        with_layout_env(
+            Some(&ignored_home),
+            Some(&overridden_bin),
+            Some(&overridden_cache),
+            Some(&overridden_venv),
+            || {
+                let layout = InstallLayout::from_root(HostOs::Windows, explicit_home.clone()).unwrap();
+                assert_eq!(layout.home(), explicit_home.as_path());
+                assert_eq!(layout.bin_dir(), explicit_home.join("bin"));
+                assert_eq!(layout.cache_dir(), explicit_home.join("cache"));
+                assert_eq!(layout.venvs_dir(), explicit_home.join("venv"));
+                assert_eq!(layout.versions_dir(), explicit_home.join("multi"));
+            },
+        );
+    }
+
+    #[test]
+    fn from_root_with_versions_dir_supports_direct_version_roots() {
+        let temp_dir = TempDir::new().unwrap();
+        let explicit_home = temp_dir.path().join("package-root");
+
+        let layout =
+            InstallLayout::from_root_with_versions_dir(HostOs::Windows, explicit_home.clone(), explicit_home.clone())
+                .unwrap();
+
+        assert_eq!(layout.home(), explicit_home.as_path());
+        assert_eq!(layout.bin_dir(), explicit_home.join("bin"));
+        assert_eq!(layout.cache_dir(), explicit_home.join("cache"));
+        assert_eq!(layout.venvs_dir(), explicit_home.join("venv"));
+        assert_eq!(layout.versions_dir(), explicit_home);
     }
 }

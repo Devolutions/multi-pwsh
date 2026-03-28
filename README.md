@@ -51,6 +51,39 @@ pwsh-7.4 --version
 pwsh-7.5 --version
 ```
 
+## Windows package-style ZIP installs
+
+On Windows, `multi-pwsh package ...` installs PowerShell from the GitHub ZIP archives into PowerShell-style roots while still publishing aliases into one shared bin directory per scope.
+
+That means:
+
+- extracted versions stay side-by-side under the selected install root
+- aliases continue to live in one stable bin directory
+- PATH only needs one entry per scope
+- optional post-install actions can be applied without using MSI
+
+Examples:
+
+```powershell
+multi-pwsh package install 7.4 --scope all-users --add-path
+multi-pwsh package install 7.5 --scope all-users --enable-psremoting --add-explorer-context-menu
+multi-pwsh package list --scope all-users
+multi-pwsh package uninstall 7.4.13 --scope all-users
+```
+
+Current package-install flags mirror the most useful MSI-style options:
+
+- `--add-path` / `--no-add-path`
+- `--register-manifest` / `--no-register-manifest`
+- `--enable-psremoting`
+- `--disable-telemetry`
+- `--add-explorer-context-menu`
+- `--add-file-context-menu`
+- `--use-mu` / `--no-use-mu`
+- `--enable-mu` / `--no-enable-mu`
+- `--scope <current-user|all-users>`
+- `--root <path>`
+
 ## Manage installed lines
 
 ```powershell
@@ -83,6 +116,9 @@ multi-pwsh install <version|major|major.minor|major.minor.x> [--arch <auto|x64|x
 multi-pwsh update <major.minor> [--arch <auto|x64|x86|arm64|arm32>] [--include-prerelease]
 multi-pwsh uninstall <version> [--force]
 multi-pwsh list [--available] [--include-prerelease]
+multi-pwsh package install <version|major|major.minor|major.minor.x> [--scope <current-user|all-users>] [--root <path>] [--arch <auto|x64|x86|arm64|arm32>] [--include-prerelease] [--add-path|--no-add-path] [--register-manifest|--no-register-manifest] [--enable-psremoting] [--disable-telemetry] [--add-explorer-context-menu] [--add-file-context-menu] [--use-mu|--no-use-mu] [--enable-mu|--no-enable-mu]
+multi-pwsh package uninstall <version> [--scope <current-user|all-users>] [--root <path>] [--force]
+multi-pwsh package list [--scope <current-user|all-users>] [--root <path>]
 multi-pwsh venv create <name>
 multi-pwsh venv delete <name>
 multi-pwsh venv export <name> <archive.zip>

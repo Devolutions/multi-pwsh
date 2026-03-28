@@ -1031,3 +1031,63 @@ fn host_venv_stdin_import_module_psresourceget_keeps_get_installed_psresource_ve
         "expected stdin-driven PSResourceGet import to preserve venv-installed resource discovery"
     );
 }
+
+#[cfg(windows)]
+#[test]
+fn package_list_uses_explicit_root_and_scope() {
+    let temp_dir = TempDir::new().expect("failed to create temp dir");
+    let package_root = temp_dir.path().join("package-root");
+    let package_root_text = package_root.display().to_string();
+
+    let output = run_multi_pwsh(
+        &["package", "list", "--scope", "all-users", "--root", &package_root_text],
+        temp_dir.path(),
+    );
+
+    assert!(
+        output.status.success(),
+        "expected package list to succeed: {}",
+        normalize_output(&output.stderr)
+    );
+
+    let stdout = normalize_output(&output.stdout);
+    assert!(
+        stdout.contains("Package scope: all-users"),
+        "unexpected stdout: {}",
+        stdout
+    );
+    assert!(
+        stdout.contains(&package_root_text),
+        "expected package root in output: {}",
+        stdout
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn package_install_rejects_machine_actions_for_current_user_scope() {
+    let temp_dir = TempDir::new().expect("failed to create temp dir");
+    let output = run_multi_pwsh(
+        &[
+            "package",
+            "install",
+            "7.4",
+            "--scope",
+            "current-user",
+            "--register-manifest",
+        ],
+        temp_dir.path(),
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected package install to fail for current-user manifest registration"
+    );
+
+    let stderr = normalize_output(&output.stderr);
+    assert!(
+        stderr.contains("--register-manifest requires --scope all-users"),
+        "unexpected stderr: {}",
+        stderr
+    );
+}
