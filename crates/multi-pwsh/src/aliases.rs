@@ -13,6 +13,8 @@ use crate::layout::InstallLayout;
 use crate::platform::HostOs;
 use crate::versions::MajorMinor;
 
+const LAYOUT_HINT_FILE: &str = "multi-pwsh-layout.json";
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AliasSelector {
     Major(u64),
@@ -57,6 +59,8 @@ fn create_or_update_alias_with_selector(
     target: &Path,
 ) -> Result<PathBuf> {
     fs::create_dir_all(layout.bin_dir())?;
+    write_layout_hint(layout)?;
+    let _ = target;
 
     let alias_command = alias_command_name(&selector);
     let alias_file = alias_file_name(&selector, os);
@@ -64,10 +68,6 @@ fn create_or_update_alias_with_selector(
 
     match os {
         HostOs::Windows => {
-            if alias_path.exists() {
-                fs::remove_file(&alias_path)?;
-            }
-            create_windows_cmd_alias(target, &alias_path)?;
             create_or_update_windows_host_shim(layout, &alias_command)?;
         }
         HostOs::Linux | HostOs::Macos => {
@@ -82,6 +82,24 @@ fn create_or_update_alias_with_selector(
     Ok(alias_path)
 }
 
+pub fn read_layout_hint(bin_dir: &Path, os: HostOs) -> Result<Option<InstallLayout>> {
+    let path = layout_hint_path(bin_dir);
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let content = fs::read_to_string(path)?;
+    let hint: LayoutHint = serde_json::from_str(&content)?;
+    Ok(Some(InstallLayout::from_parts(
+        os,
+        PathBuf::from(hint.home),
+        PathBuf::from(hint.bin_dir),
+        PathBuf::from(hint.cache_dir),
+        PathBuf::from(hint.venvs_dir),
+        PathBuf::from(hint.versions_dir),
+    )?))
+}
+
 pub fn remove_alias(layout: &InstallLayout, os: HostOs, alias_command: &str) -> Result<bool> {
     let alias_path = layout.bin_dir().join(alias_file_name_from_command(alias_command, os));
     let mut removed = false;
@@ -92,9 +110,9 @@ pub fn remove_alias(layout: &InstallLayout, os: HostOs, alias_command: &str) -> 
     }
 
     if os == HostOs::Windows {
-        let host_shim_path = layout.bin_dir().join(format!("{}.exe", alias_command));
-        if host_shim_path.exists() {
-            fs::remove_file(host_shim_path)?;
+        let legacy_cmd_path = layout.bin_dir().join(format!("{}.cmd", alias_command));
+        if legacy_cmd_path.exists() {
+            fs::remove_file(legacy_cmd_path)?;
             removed = true;
         }
     }
@@ -224,7 +242,7 @@ fn alias_file_name(selector: &AliasSelector, os: HostOs) -> String {
 
 fn alias_file_name_from_command(alias_command: &str, os: HostOs) -> String {
     match os {
-        HostOs::Windows => format!("{}.cmd", alias_command),
+        HostOs::Windows => format!("{}.exe", alias_command),
         HostOs::Linux | HostOs::Macos => alias_command.to_string(),
     }
 }
@@ -235,26 +253,6 @@ fn alias_command_name(selector: &AliasSelector) -> String {
         AliasSelector::MajorMinor(line) => format!("pwsh-{}.{}", line.major, line.minor),
         AliasSelector::Exact(version) => format!("pwsh-{}", version),
     }
-}
-
-#[cfg(windows)]
-fn create_windows_cmd_alias(target: &Path, alias_path: &Path) -> Result<()> {
-    let target_string = target
-        .to_str()
-        .ok_or_else(|| MultiPwshError::AliasCreation("target path is not valid UTF-8".to_string()))?;
-
-    let script = format!("@echo off\r\n\"{}\" %*\r\nexit /b %ERRORLEVEL%\r\n", target_string);
-
-    fs::write(alias_path, script).map_err(|error| {
-        MultiPwshError::AliasCreation(format!(
-            "failed to write windows command alias '{}' -> '{}': {}",
-            alias_path.display(),
-            target.display(),
-            error
-        ))
-    })?;
-
-    Ok(())
 }
 
 #[cfg(windows)]
@@ -390,11 +388,21 @@ fn resolve_host_shim_source(layout: &InstallLayout) -> Result<PathBuf> {
     ))
 }
 
-#[cfg(not(windows))]
-fn create_windows_cmd_alias(_target: &Path, _alias_path: &Path) -> Result<()> {
-    Err(MultiPwshError::AliasCreation(
-        "windows command alias is not available on this platform".to_string(),
-    ))
+fn write_layout_hint(layout: &InstallLayout) -> Result<()> {
+    let hint = LayoutHint {
+        home: layout.home().display().to_string(),
+        bin_dir: layout.bin_dir().display().to_string(),
+        cache_dir: layout.cache_dir().display().to_string(),
+        venvs_dir: layout.venvs_dir().display().to_string(),
+        versions_dir: layout.versions_dir().display().to_string(),
+    };
+    let payload = serde_json::to_string_pretty(&hint)?;
+    fs::write(layout_hint_path(&layout.bin_dir()), payload)?;
+    Ok(())
+}
+
+fn layout_hint_path(bin_dir: &Path) -> PathBuf {
+    bin_dir.join(LAYOUT_HINT_FILE)
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -405,9 +413,19 @@ struct AliasMetadata {
     pins: HashMap<String, String>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct LayoutHint {
+    home: String,
+    bin_dir: String,
+    cache_dir: String,
+    venvs_dir: String,
+    versions_dir: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::TempDir;
 
     #[test]
     fn alias_name_uses_major_minor() {
@@ -419,7 +437,7 @@ mod tests {
         );
         assert_eq!(
             alias_file_name(&AliasSelector::MajorMinor(line), HostOs::Windows),
-            "pwsh-7.4.cmd"
+            "pwsh-7.4.exe"
         );
     }
 
@@ -427,7 +445,7 @@ mod tests {
     fn alias_name_supports_major() {
         assert_eq!(alias_command_name(&AliasSelector::Major(7)), "pwsh-7");
         assert_eq!(alias_file_name(&AliasSelector::Major(7), HostOs::Linux), "pwsh-7");
-        assert_eq!(alias_file_name(&AliasSelector::Major(7), HostOs::Windows), "pwsh-7.cmd");
+        assert_eq!(alias_file_name(&AliasSelector::Major(7), HostOs::Windows), "pwsh-7.exe");
     }
 
     #[test]
@@ -452,5 +470,34 @@ mod tests {
     fn rejects_invalid_alias_selector() {
         assert!(parse_alias_command_selector("pwsh").is_none());
         assert!(parse_alias_command_selector("not-pwsh-7.5").is_none());
+    }
+
+    #[test]
+    fn layout_hint_round_trips_shared_bin_layout() {
+        let temp_dir = TempDir::new().unwrap();
+        let home = temp_dir.path().join("payload-root");
+        let bin_dir = temp_dir.path().join("shared-bin");
+        let cache_dir = temp_dir.path().join("cache-root");
+        let venvs_dir = temp_dir.path().join("venv-root");
+        let versions_dir = temp_dir.path().join("versions-root");
+        fs::create_dir_all(&bin_dir).unwrap();
+        let layout = InstallLayout::from_parts(
+            HostOs::Linux,
+            home.clone(),
+            bin_dir.clone(),
+            cache_dir.clone(),
+            venvs_dir.clone(),
+            versions_dir.clone(),
+        )
+        .unwrap();
+
+        write_layout_hint(&layout).unwrap();
+        let loaded = read_layout_hint(&bin_dir, HostOs::Linux).unwrap().unwrap();
+
+        assert_eq!(loaded.home(), home.as_path());
+        assert_eq!(loaded.bin_dir(), bin_dir);
+        assert_eq!(loaded.cache_dir(), cache_dir);
+        assert_eq!(loaded.venvs_dir(), venvs_dir);
+        assert_eq!(loaded.versions_dir(), versions_dir);
     }
 }

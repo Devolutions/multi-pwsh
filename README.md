@@ -51,6 +51,57 @@ pwsh-7.4 --version
 pwsh-7.5 --version
 ```
 
+## Scoped installs
+
+`multi-pwsh install`, `update`, `uninstall`, and `list` now support `--scope <user|machine>` across Windows, macOS, and Linux.
+
+That means:
+
+- extracted versions stay side-by-side under the selected install root
+- aliases continue to live in one stable bin directory
+- PATH only needs one entry per scope
+- `user` is the default scope when `--scope` is omitted
+
+Platform behavior:
+
+- Windows uses the GitHub ZIP archives with MSI-like install roots and selected installer-style integrations that still make sense for archive installs.
+- macOS `machine` installs use the official `.tar.gz` archives under `/usr/local/microsoft/powershell` with aliases published to `/usr/local/bin`.
+- Linux `machine` installs use the official `.tar.gz` archives under `/opt/microsoft/powershell` with aliases published to `/usr/local/bin`.
+- Unix `machine` installs expect you to provide elevation yourself; `multi-pwsh` does not invoke `sudo`.
+
+Examples:
+
+```powershell
+multi-pwsh install 7.4
+multi-pwsh install 7.5 --scope machine --enable-psremoting --add-explorer-context-menu
+multi-pwsh install 7.5 --scope machine
+multi-pwsh list --scope all
+multi-pwsh uninstall 7.4.13 --scope machine
+```
+
+Windows scoped-install flags mirror the most useful MSI-style options:
+
+- `--add-path` / `--no-add-path`
+- `--register-manifest` / `--no-register-manifest`
+- `--enable-psremoting`
+- `--disable-telemetry`
+- `--add-explorer-context-menu`
+- `--add-file-context-menu`
+- `--scope <user|machine>`
+- `--root <path>`
+
+Microsoft Update registration is intentionally out of scope for archive installs at the moment, even on Windows.
+
+On macOS and Linux, scoped installs support:
+
+- `--scope <user|machine>`
+- `--root <path>`
+- `--arch <auto|x64|x86|arm64|arm32>`
+- `--include-prerelease`
+- `--add-path` / `--no-add-path`
+
+The Windows-only integration flags above currently return an error on macOS/Linux.
+
 ## Manage installed lines
 
 ```powershell
@@ -79,10 +130,10 @@ multi-pwsh doctor --repair-aliases
 `multi-pwsh` usage reference:
 
 ```text
-multi-pwsh install <version|major|major.minor|major.minor.x> [--arch <auto|x64|x86|arm64|arm32>] [--include-prerelease]
-multi-pwsh update <major.minor> [--arch <auto|x64|x86|arm64|arm32>] [--include-prerelease]
-multi-pwsh uninstall <version> [--force]
-multi-pwsh list [--available] [--include-prerelease]
+multi-pwsh install <version|major|major.minor|major.minor.x> [--scope <user|machine>] [--root <path>] [--arch <auto|x64|x86|arm64|arm32>] [--include-prerelease] [--add-path|--no-add-path] [--register-manifest|--no-register-manifest] [--enable-psremoting] [--disable-telemetry] [--add-explorer-context-menu] [--add-file-context-menu]
+multi-pwsh update <major.minor> [--scope <user|machine>] [--root <path>] [--arch <auto|x64|x86|arm64|arm32>] [--include-prerelease] [--add-path|--no-add-path] [--register-manifest|--no-register-manifest] [--enable-psremoting] [--disable-telemetry] [--add-explorer-context-menu] [--add-file-context-menu]
+multi-pwsh uninstall <version> [--scope <user|machine>] [--root <path>] [--force]
+multi-pwsh list [--scope <user|machine|all>] [--root <path>] [--available] [--include-prerelease]
 multi-pwsh venv create <name>
 multi-pwsh venv delete <name>
 multi-pwsh venv export <name> <archive.zip>
@@ -93,6 +144,8 @@ multi-pwsh alias unset <major.minor>
 multi-pwsh host <version|major|major.minor|pwsh-alias> [-VirtualEnvironment <name>|-venv <name>] [pwsh arguments...]
 multi-pwsh doctor --repair-aliases
 ```
+
+The Windows integration flags in the `install` and `update` forms are limited to archive-friendly behaviors; on macOS/Linux, use `--scope`, `--root`, `--arch`, `--include-prerelease`, and `--add-path` controls. Legacy scope aliases such as `current-user` and `all-users` are still accepted for compatibility.
 
 ### Venv cmdlet matrix tests (Pester)
 
@@ -148,7 +201,7 @@ Native host mode:
 - `-VirtualEnvironment <name>` and `-venv <name>` are consumed by `multi-pwsh` before handing control to PowerShell and set `PSModulePath` to the selected venv root for that launch.
 - `PSMODULE_VENV_PATH` can also be used as an explicit path-based venv selector for hosted launches. If it is already set in the environment, `multi-pwsh host` treats it as an intentional venv opt-in.
 - Alias lifecycle now maintains native host shims as hard links to `multi-pwsh` automatically during install/update/doctor alias repair.
-- On Windows, host shims are `pwsh-*.exe` files alongside `.cmd` wrappers in `MULTI_PWSH_BIN_DIR` (default: `~/.pwsh/bin`).
+- On Windows, alias command paths are `pwsh-*.exe` host shims in `MULTI_PWSH_BIN_DIR` (default: `~/.pwsh/bin`).
 - On Linux/macOS, alias command paths (`pwsh-*`) are hard links to `multi-pwsh`.
 - `multi-pwsh doctor --repair-aliases` performs a shim health check and re-links broken hard links automatically.
 - You can still manually copy/rename `multi-pwsh.exe` under `MULTI_PWSH_BIN_DIR` (default: `~/.pwsh/bin`) to an alias-like name (for example `pwsh-7.4.exe`); it automatically enters host mode and resolves the target installation from that alias name.
