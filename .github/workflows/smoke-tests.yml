@@ -54,7 +54,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/multi-pwsh-cache
-          key: multi-pwsh-scope-smoke-${{ runner.os }}-${{ hashFiles('crates/multi-pwsh/Cargo.toml', '.github/workflows/scoped-install-smoke.yml', 'tests/Invoke-ScopedInstallSmokeTest.ps1') }}
+          key: multi-pwsh-scope-smoke-${{ runner.os }}-${{ hashFiles('crates/multi-pwsh/Cargo.toml', '.github/workflows/smoke-tests.yml', 'tests/Invoke-ScopedInstallSmokeTest.ps1') }}
           restore-keys: |
             multi-pwsh-scope-smoke-${{ runner.os }}-
 
