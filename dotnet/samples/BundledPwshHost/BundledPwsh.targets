@@ -1,0 +1,88 @@
+<Project>
+  <ItemGroup>
+    <BundledPwshSdkPackageReference Include="@(PackageReference->WithMetadataValue('Identity', 'Microsoft.PowerShell.SDK'))" />
+    <BundledPwshSdkPackageVersion Include="@(PackageVersion->WithMetadataValue('Identity', 'Microsoft.PowerShell.SDK'))" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <BundledPwshEnabled Condition="'$(BundledPwshEnabled)' == ''">true</BundledPwshEnabled>
+    <BundledPwshLayoutToolProject Condition="'$(BundledPwshLayoutToolProject)' == ''">$(MSBuildThisFileDirectory)tools\BundlePwshLayout\BundlePwshLayout.csproj</BundledPwshLayoutToolProject>
+    <BundledPwshPackageVersion Condition="'$(BundledPwshPackageVersion)' == ''">@(BundledPwshSdkPackageReference->'%(Version)')</BundledPwshPackageVersion>
+    <BundledPwshPackageVersion Condition="'$(BundledPwshPackageVersion)' == ''">@(BundledPwshSdkPackageVersion->'%(Version)')</BundledPwshPackageVersion>
+    <BundledPwshDotNetRoot Condition="'$(BundledPwshDotNetRoot)' == '' and '$(DOTNET_ROOT)' != ''">$(DOTNET_ROOT)</BundledPwshDotNetRoot>
+    <BundledPwshDotNetRoot Condition="'$(BundledPwshDotNetRoot)' == '' and '$(OS)' == 'Windows_NT'">$(ProgramFiles)\dotnet</BundledPwshDotNetRoot>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(BundledPwshEnabled)' == 'true' and '$(BundledPwshPackageVersion)' != ''">
+    <PackageReference Include="PowerShell"
+                      Version="$(BundledPwshPackageVersion)"
+                      GeneratePathProperty="true"
+                      ExcludeAssets="all"
+                      PrivateAssets="all" />
+  </ItemGroup>
+
+  <PropertyGroup Condition="'$(BundledPwshEnabled)' == 'true'">
+    <BundledPwshTargetPlatform Condition="$([System.String]::Copy('$(RuntimeIdentifier)').StartsWith('win'))">win</BundledPwshTargetPlatform>
+    <BundledPwshTargetPlatform Condition="'$(BundledPwshTargetPlatform)' == '' and ($([System.String]::Copy('$(RuntimeIdentifier)').StartsWith('linux')) or $([System.String]::Copy('$(RuntimeIdentifier)').StartsWith('osx')))">unix</BundledPwshTargetPlatform>
+  </PropertyGroup>
+
+  <Target Name="ValidateBundledPwshPublish"
+          BeforeTargets="Publish"
+          Condition="'$(BundledPwshEnabled)' == 'true'">
+    <ItemGroup>
+      <BundledPwshEntryPoint Include="$(PkgPowerShell)\tools\net*\any\$(BundledPwshTargetPlatform)\pwsh.dll" />
+      <BundledPwshHostExecutable Include="$(PkgPowerShell)\tools\net*\any\$(BundledPwshTargetPlatform)\pwsh.exe"
+                                 Condition="'$(BundledPwshTargetPlatform)' == 'win'" />
+      <BundledPwshHostExecutable Include="$(PkgPowerShell)\tools\net*\any\$(BundledPwshTargetPlatform)\pwsh"
+                                 Condition="'$(BundledPwshTargetPlatform)' != 'win'" />
+    </ItemGroup>
+
+    <Error Condition="'@(BundledPwshSdkPackageReference)' == ''"
+           Text="BundledPwsh.targets requires a Microsoft.PowerShell.SDK package reference." />
+    <Error Condition="'$(BundledPwshPackageVersion)' == ''"
+           Text="Unable to resolve the PowerShell package version from Microsoft.PowerShell.SDK. Set BundledPwshPackageVersion explicitly before importing BundledPwsh.targets." />
+    <Error Condition="'$(RuntimeIdentifier)' == ''"
+           Text="BundledPwshHost requires a RuntimeIdentifier. Example: dotnet publish -c Release -f net10.0-windows -r win-x64" />
+    <Error Condition="'$(BundledPwshTargetPlatform)' == ''"
+           Text="Unsupported RuntimeIdentifier '$(RuntimeIdentifier)'. Use a win-*, linux-*, or osx-* RID." />
+    <Error Condition="'$(BundledPwshTargetPlatform)' == 'win' and '$(TargetFramework)' != 'net10.0-windows'"
+           Text="Windows bundled publish requires -f net10.0-windows." />
+    <Error Condition="'$(BundledPwshTargetPlatform)' != 'win' and '$(TargetFramework)' != 'net10.0'"
+           Text="Non-Windows bundled publish requires -f net10.0." />
+    <Error Condition="'$(PkgPowerShell)' == ''"
+           Text="PowerShell package restore path is unavailable. Restore the project before publishing." />
+    <Error Condition="'@(BundledPwshEntryPoint)' == ''"
+           Text="PowerShell payload root was not found under $(PkgPowerShell)\tools\net*\any\$(BundledPwshTargetPlatform)." />
+    <Error Condition="'@(BundledPwshHostExecutable)' == ''"
+           Text="PowerShell payload host executable was not found under $(PkgPowerShell)\tools\net*\any\$(BundledPwshTargetPlatform)." />
+    <Error Condition="!Exists('$(BundledPwshLayoutToolProject)')"
+           Text="Bundled pwsh layout tool was not found at $(BundledPwshLayoutToolProject)." />
+    <Error Condition="'$(BundledPwshDotNetRoot)' == ''"
+           Text="Unable to resolve the local dotnet root. Set BundledPwshDotNetRoot or DOTNET_ROOT before publishing." />
+  </Target>
+
+  <Target Name="BundlePowerShellPayload"
+          AfterTargets="Publish"
+          Condition="'$(BundledPwshEnabled)' == 'true'">
+    <ItemGroup>
+      <BundledPwshPayload Include="$(PkgPowerShell)\tools\net*\any\$(BundledPwshTargetPlatform)\**\*" />
+      <BundledPwshMissingPayload Include="@(BundledPwshPayload)"
+                                Condition="!Exists('$(PublishDir)%(BundledPwshPayload.RecursiveDir)%(BundledPwshPayload.Filename)%(BundledPwshPayload.Extension)')" />
+    </ItemGroup>
+
+    <Copy SourceFiles="@(BundledPwshMissingPayload)"
+          DestinationFiles="@(BundledPwshMissingPayload -> '$(PublishDir)%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Name="PrepareBundledPwshRuntime"
+          AfterTargets="BundlePowerShellPayload"
+          Condition="'$(BundledPwshEnabled)' == 'true'">
+    <PropertyGroup>
+      <BundledPwshPublishDirNoSlash>$([System.String]::Copy('$(PublishDir)').TrimEnd('\'))</BundledPwshPublishDirNoSlash>
+    </PropertyGroup>
+
+    <Exec Command="dotnet run --project &quot;$(BundledPwshLayoutToolProject)&quot; -- &quot;$(BundledPwshPublishDirNoSlash)&quot; &quot;$(PublishDir)$(AssemblyName).runtimeconfig.json&quot; &quot;$(PublishDir)pwsh.runtimeconfig.json&quot; &quot;$(BundledPwshDotNetRoot)&quot;"
+          WorkingDirectory="$(MSBuildThisFileDirectory)" />
+  </Target>
+</Project>

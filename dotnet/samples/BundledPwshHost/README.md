@@ -13,13 +13,28 @@ This sample shows how to:
 `dotnet publish` for this sample:
 
 1. publishes the sample app as a self-contained `.NET 10` app;
-2. overlays the `PowerShell` NuGet package payload (`pwsh.exe`, `pwsh.dll`, `pwsh.deps.json`, modules, and related files);
+2. imports `BundledPwsh.targets`, which adds a matching `PowerShell` package reference based on the existing `Microsoft.PowerShell.SDK` version;
+3. overlays the `PowerShell` NuGet package payload (`pwsh.exe`, `pwsh.dll`, `pwsh.deps.json`, modules, and related files);
 4. rewrites `pwsh.runtimeconfig.json` to the local `.NET 10` shared framework version;
 5. copies the matching shared runtime folders from the local dotnet installation into `publish\shared\...`.
 
 The bundled `pwsh.exe` is the official apphost that ships inside the `PowerShell` NuGet package payload. The sample keeps that executable and adjusts the runtime layout around it so it can start against the local `.NET 10` runtime copied into the publish output.
 
-The package versions are intentionally linked: the `PowerShell` payload package reuses the same version property as `Microsoft.PowerShell.SDK` (`BundledPwshSdkVersion`), so changing the SDK version automatically changes the imported `pwsh.exe` / `pwsh.dll` payload version too.
+The package versions are intentionally linked: `BundledPwsh.targets` inspects the existing `Microsoft.PowerShell.SDK` reference and reuses that version for the `PowerShell` payload package, so changing the SDK reference automatically changes the imported `pwsh.exe` / `pwsh.dll` payload version too.
+
+## Reusable MSBuild chunk
+
+The sample project keeps the reusable publish logic in `BundledPwsh.targets`. The `.csproj` stays small:
+
+```xml
+<ItemGroup>
+  <PackageReference Include="Microsoft.PowerShell.SDK" Version="7.4.0" />
+</ItemGroup>
+
+<Import Project="BundledPwsh.targets" />
+```
+
+The imported targets file adds the matching `PowerShell` package, copies the CLI payload into `$(PublishDir)`, and runs the helper tool that patches `pwsh.runtimeconfig.json` plus copies the required `shared\...` framework folders.
 
 ## Prerequisites
 
