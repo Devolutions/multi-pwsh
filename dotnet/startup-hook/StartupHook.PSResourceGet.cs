@@ -14,7 +14,7 @@ public static partial class StartupHook
         string? scope,
         string? path)
     {
-        string? moduleVenvPath = GetModuleVenvPath();
+        string? moduleVenvPath = GetModuleVenvModulesPath();
         if (string.IsNullOrWhiteSpace(moduleVenvPath))
         {
             yield break;
@@ -71,7 +71,7 @@ public static partial class StartupHook
         bool authenticodeCheck,
         string? temporaryPath)
     {
-        string? moduleVenvPath = GetModuleVenvPath();
+        string? moduleVenvPath = GetModuleVenvModulesPath();
         if (string.IsNullOrWhiteSpace(moduleVenvPath))
         {
             yield break;
@@ -371,6 +371,8 @@ public static partial class StartupHook
         string? temporaryPath,
         string moduleVenvPath)
     {
+        Directory.CreateDirectory(moduleVenvPath);
+
         using PowerShell powerShell = PowerShell.Create(RunspaceMode.CurrentRunspace);
         powerShell.AddCommand("Microsoft.PowerShell.PSResourceGet\\Save-PSResource");
         powerShell.AddParameter("Name", name);
@@ -406,6 +408,8 @@ public static partial class StartupHook
         string? temporaryPath,
         string moduleVenvPath)
     {
+        Directory.CreateDirectory(moduleVenvPath);
+
         using PowerShell powerShell = PowerShell.Create(RunspaceMode.CurrentRunspace);
         powerShell.AddCommand("Microsoft.PowerShell.PSResourceGet\\Save-PSResource");
         powerShell.AddParameter("InputObject", inputObject);

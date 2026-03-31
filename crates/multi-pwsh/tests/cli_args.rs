@@ -129,6 +129,8 @@ fn link_directory(link_path: &Path, target_path: &Path) {
 }
 
 fn save_gallery_module(module_name: &str, destination: &Path) {
+    std::fs::create_dir_all(destination).expect("failed to create gallery module destination");
+
     let script = format!(
         "$ErrorActionPreference = 'Stop'; \
          $ProgressPreference = 'SilentlyContinue'; \
@@ -145,6 +147,10 @@ fn save_gallery_module(module_name: &str, destination: &Path) {
         module_name,
         normalize_output(&output.stderr)
     );
+}
+
+fn venv_modules_dir(venv_root: &Path) -> PathBuf {
+    venv_root.join("Modules")
 }
 
 fn query_module_bases(home: &Path, selector: &str, venv: &str) -> Value {
@@ -488,10 +494,16 @@ fn venv_create_and_list_use_multi_pwsh_home() {
     );
 
     let expected_venv = temp_dir.path().join("venv").join("msgraph");
+    let expected_modules = venv_modules_dir(&expected_venv);
     assert!(
         expected_venv.is_dir(),
         "expected venv dir at {}",
         expected_venv.display()
+    );
+    assert!(
+        expected_modules.is_dir(),
+        "expected venv modules dir at {}",
+        expected_modules.display()
     );
 
     let list_output = run_multi_pwsh(&["venv", "list"], temp_dir.path());
@@ -565,7 +577,7 @@ fn venv_export_and_import_round_trip_module_contents() {
     );
 
     let original_venv = temp_dir.path().join("venv").join("roundtrip");
-    let module_dir = original_venv.join("RoundTripModule");
+    let module_dir = venv_modules_dir(&original_venv).join("RoundTripModule");
     std::fs::create_dir_all(&module_dir).expect("failed to create test module dir");
     std::fs::write(
         module_dir.join("RoundTripModule.psm1"),
@@ -600,7 +612,9 @@ fn venv_export_and_import_round_trip_module_contents() {
     );
 
     let imported_venv = temp_dir.path().join("venv").join("roundtrip-copy");
-    let imported_data = imported_venv.join("RoundTripModule").join("data.txt");
+    let imported_data = venv_modules_dir(&imported_venv)
+        .join("RoundTripModule")
+        .join("data.txt");
     assert!(
         imported_data.is_file(),
         "expected imported data at {}",
@@ -619,7 +633,7 @@ fn venv_export_and_import_round_trip_module_contents() {
 
     let module_bases = query_single_module_bases(temp_dir.path(), &version, "roundtrip-copy", "RoundTripModule");
     assert!(
-        output_contains_module_base_under(&module_bases, &imported_venv),
+        output_contains_module_base_under(&module_bases, &venv_modules_dir(&imported_venv)),
         "expected imported module to be discoverable from imported venv, got {:?}",
         module_bases
     );
@@ -702,21 +716,23 @@ fn host_venv_isolates_psgallery_modules() {
 
     let yaml_root = temp_dir.path().join("venv").join("yaml");
     let toml_root = temp_dir.path().join("venv").join("toml");
+    let yaml_modules_root = venv_modules_dir(&yaml_root);
+    let toml_modules_root = venv_modules_dir(&toml_root);
 
-    save_gallery_module("Yayaml", &yaml_root);
-    save_gallery_module("PSToml", &toml_root);
+    save_gallery_module("Yayaml", &yaml_modules_root);
+    save_gallery_module("PSToml", &toml_modules_root);
 
     let yaml_result = query_module_bases(temp_dir.path(), &version, "yaml");
     let yaml_bases = json_strings(&yaml_result, "Yayaml");
     let toml_bases_from_yaml = json_strings(&yaml_result, "PSToml");
 
     assert!(
-        output_contains_module_base_under(&yaml_bases, &yaml_root),
+        output_contains_module_base_under(&yaml_bases, &yaml_modules_root),
         "expected Yayaml to be discovered from yaml venv, got {:?}",
         yaml_bases
     );
     assert!(
-        !output_contains_module_base_under(&toml_bases_from_yaml, &toml_root),
+        !output_contains_module_base_under(&toml_bases_from_yaml, &toml_modules_root),
         "did not expect PSToml from toml venv to leak into yaml venv, got {:?}",
         toml_bases_from_yaml
     );
@@ -726,12 +742,12 @@ fn host_venv_isolates_psgallery_modules() {
     let yaml_bases_from_toml = json_strings(&toml_result, "Yayaml");
 
     assert!(
-        output_contains_module_base_under(&toml_bases, &toml_root),
+        output_contains_module_base_under(&toml_bases, &toml_modules_root),
         "expected PSToml to be discovered from toml venv, got {:?}",
         toml_bases
     );
     assert!(
-        !output_contains_module_base_under(&yaml_bases_from_toml, &yaml_root),
+        !output_contains_module_base_under(&yaml_bases_from_toml, &yaml_modules_root),
         "did not expect Yayaml from yaml venv to leak into toml venv, got {:?}",
         yaml_bases_from_toml
     );
@@ -755,8 +771,10 @@ fn host_venv_rewrites_powershellget_current_user_module_path() {
     );
 
     let venv_root = temp_dir.path().join("venv").join("msgraph");
+    let venv_modules_root = venv_modules_dir(&venv_root);
     let runtime_paths = query_venv_runtime_paths(temp_dir.path(), &version, "msgraph");
     let expected = venv_root.to_string_lossy().to_string();
+    let expected_modules = venv_modules_root.to_string_lossy().to_string();
     let module_path_entries = split_module_path_entries(
         runtime_paths["EnvPSModulePath"]
             .as_str()
@@ -766,10 +784,10 @@ fn host_venv_rewrites_powershellget_current_user_module_path() {
     assert_eq!(
         module_path_entries.len(),
         2,
-        "expected venv PSModulePath to contain only the venv and bundled PSHOME modules, got {:?}",
+        "expected venv PSModulePath to contain only the venv Modules path and bundled PSHOME modules, got {:?}",
         module_path_entries
     );
-    assert_eq!(module_path_entries[0], venv_root);
+    assert_eq!(module_path_entries[0], venv_modules_root);
     assert!(
         module_path_entries[1].ends_with("Modules"),
         "expected bundled PSHOME modules path, got {:?}",
@@ -778,11 +796,11 @@ fn host_venv_rewrites_powershellget_current_user_module_path() {
     assert_eq!(runtime_paths["EnvModuleVenvPath"].as_str(), Some(expected.as_str()));
     assert_eq!(
         runtime_paths["PowerShellGetCurrentUserModules"].as_str(),
-        Some(expected.as_str())
+        Some(expected_modules.as_str())
     );
     assert_eq!(
         runtime_paths["PowerShellGetPsGetPathCurrentUser"].as_str(),
-        Some(expected.as_str())
+        Some(expected_modules.as_str())
     );
 }
 
@@ -855,13 +873,14 @@ fn host_venv_import_module_powershellget_keeps_get_installed_module_venv_aware()
     );
 
     let venv_root = temp_dir.path().join("venv").join("yaml");
-    save_gallery_module("Yayaml", &venv_root);
+    let venv_modules_root = venv_modules_dir(&venv_root);
+    save_gallery_module("Yayaml", &venv_modules_root);
 
     let installed_location =
         query_installed_module_location_after_powershellget_import(temp_dir.path(), &version, "yaml", "Yayaml");
 
     assert!(
-        output_contains_module_base_under(&[installed_location], &venv_root),
+        output_contains_module_base_under(&[installed_location], &venv_modules_root),
         "expected explicit PowerShellGet import to preserve venv-installed module discovery"
     );
 }
@@ -933,7 +952,8 @@ fn host_venv_stdin_import_module_powershellget_keeps_get_installed_module_venv_a
     );
 
     let venv_root = temp_dir.path().join("venv").join("yaml-stdin");
-    save_gallery_module("Yayaml", &venv_root);
+    let venv_modules_root = venv_modules_dir(&venv_root);
+    save_gallery_module("Yayaml", &venv_modules_root);
 
     let host_output = run_multi_pwsh_with_stdin(
         &["host", &version, "-venv", "yaml-stdin", "-NoLogo", "-NoProfile", "-File", "-"],
@@ -949,7 +969,7 @@ fn host_venv_stdin_import_module_powershellget_keeps_get_installed_module_venv_a
 
     let stdout = normalize_output(&host_output.stdout);
     assert!(
-        output_contains_module_base_under(&[stdout], &venv_root),
+        output_contains_module_base_under(&[stdout], &venv_modules_root),
         "expected stdin-driven PowerShellGet import to preserve venv-installed module discovery"
     );
 }
@@ -972,13 +992,14 @@ fn host_venv_import_module_psresourceget_keeps_get_installed_psresource_venv_awa
     );
 
     let venv_root = temp_dir.path().join("venv").join("yaml-psresource");
-    save_gallery_module("Yayaml", &venv_root);
+    let venv_modules_root = venv_modules_dir(&venv_root);
+    save_gallery_module("Yayaml", &venv_modules_root);
 
     let installed_location =
         query_installed_psresource_location_after_import(temp_dir.path(), &version, "yaml-psresource", "Yayaml");
 
     assert!(
-        output_contains_module_base_under(&[installed_location], &venv_root),
+        output_contains_module_base_under(&[installed_location], &venv_modules_root),
         "expected explicit PSResourceGet import to preserve venv-installed resource discovery"
     );
 }
@@ -1001,7 +1022,8 @@ fn host_venv_stdin_import_module_psresourceget_keeps_get_installed_psresource_ve
     );
 
     let venv_root = temp_dir.path().join("venv").join("yaml-psresource-stdin");
-    save_gallery_module("Yayaml", &venv_root);
+    let venv_modules_root = venv_modules_dir(&venv_root);
+    save_gallery_module("Yayaml", &venv_modules_root);
 
     let host_output = run_multi_pwsh_with_stdin(
         &[
@@ -1027,7 +1049,7 @@ fn host_venv_stdin_import_module_psresourceget_keeps_get_installed_psresource_ve
 
     let stdout = normalize_output(&host_output.stdout);
     assert!(
-        output_contains_module_base_under(&[stdout], &venv_root),
+        output_contains_module_base_under(&[stdout], &venv_modules_root),
         "expected stdin-driven PSResourceGet import to preserve venv-installed resource discovery"
     );
 }

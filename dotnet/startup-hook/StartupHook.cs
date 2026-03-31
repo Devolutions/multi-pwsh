@@ -41,6 +41,18 @@ public static partial class StartupHook
         return string.IsNullOrWhiteSpace(s_moduleVenvPath) ? null : s_moduleVenvPath;
     }
 
+    private static string? GetModuleVenvModulesPath()
+    {
+        string? moduleVenvPath = GetModuleVenvPath();
+        return string.IsNullOrWhiteSpace(moduleVenvPath) ? null : Path.Combine(moduleVenvPath, "Modules");
+    }
+
+    private static string? GetModuleVenvScriptsPath()
+    {
+        string? moduleVenvPath = GetModuleVenvPath();
+        return string.IsNullOrWhiteSpace(moduleVenvPath) ? null : Path.Combine(moduleVenvPath, "Scripts");
+    }
+
     private static string GetPsHomeModulesPath()
     {
         string psHomeModulesPath;
@@ -62,7 +74,7 @@ public static partial class StartupHook
 
     private static string GetEffectivePsModulePath()
     {
-        string? moduleVenvPath = GetModuleVenvPath();
+        string? moduleVenvPath = GetModuleVenvModulesPath();
         string psHomeModulesPath = GetPsHomeModulesPath();
 
         if (string.IsNullOrWhiteSpace(moduleVenvPath))
