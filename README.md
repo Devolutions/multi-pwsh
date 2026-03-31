@@ -152,6 +152,7 @@ Native host mode:
 - On Linux/macOS, alias command paths (`pwsh-*`) are hard links to `multi-pwsh`.
 - `multi-pwsh doctor --repair-aliases` performs a shim health check and re-links broken hard links automatically.
 - You can still manually copy/rename `multi-pwsh.exe` under `MULTI_PWSH_BIN_DIR` (default: `~/.pwsh/bin`) to an alias-like name (for example `pwsh-7.4.exe`); it automatically enters host mode and resolves the target installation from that alias name.
+- A `.NET 10` bundled-host sample that publishes the packaged `pwsh.exe` from the `PowerShell` NuGet payload alongside `pwsh.dll` lives under `dotnet\samples\BundledPwshHost\README.md`.
 - `-NamedPipeCommand <pipeName>` is supported in host mode (Windows only), matching `pwsh-host` behavior.
 
 ### Virtual environments

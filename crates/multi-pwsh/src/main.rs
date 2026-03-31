@@ -33,6 +33,7 @@ const POWERSHELL_UPDATECHECK_ENV_VAR: &str = "POWERSHELL_UPDATECHECK";
 const POWERSHELL_UPDATECHECK_OFF: &str = "Off";
 const VIRTUAL_ENVIRONMENT_FLAG: &str = "-virtualenvironment";
 const VIRTUAL_ENVIRONMENT_SHORT_FLAG: &str = "-venv";
+const BUNDLED_PWSH_HOME_ENV_VAR: &str = "MULTI_PWSH_BUNDLED_PWSH_HOME";
 
 fn print_usage() {
     eprintln!(
@@ -525,6 +526,29 @@ fn run_host_mode(selector_input: &str, pwsh_args: Vec<OsString>) -> Result<i32> 
     layout.ensure_base_dirs()?;
 
     let (_version, executable) = resolve_host_executable(&layout, selector_input)?;
+    let pwsh_dir = executable.parent().ok_or_else(|| {
+        MultiPwshError::InvalidArguments(format!(
+            "resolved host selector '{}' to {}, but executable has no parent directory",
+            selector_input,
+            executable.display()
+        ))
+    })?;
+    run_host_for_pwsh_dir(
+        &layout,
+        os,
+        pwsh_dir,
+        pwsh_args,
+        format!("selector '{}'", selector_input),
+    )
+}
+
+fn run_host_for_pwsh_dir(
+    layout: &InstallLayout,
+    os: HostOs,
+    pwsh_dir: &Path,
+    pwsh_args: Vec<OsString>,
+    failure_context: String,
+) -> Result<i32> {
     let HostLaunchOptions {
         pwsh_args,
         virtual_environment,
@@ -543,10 +567,10 @@ fn run_host_mode(selector_input: &str, pwsh_args: Vec<OsString>) -> Result<i32> 
         .map(|venv_dir| configure_virtual_environment_host_env(os, &venv_dir))
         .transpose()?;
 
-    pwsh_host::run_pwsh_command_line_for_pwsh_exe(&executable, pwsh_args).map_err(|error| {
+    pwsh_host::run_pwsh_command_line_for_pwsh_dir(pwsh_dir, pwsh_args).map_err(|error| {
         MultiPwshError::Host(format!(
-            "failed to start native host for selector '{}': {}",
-            selector_input, error
+            "failed to start native host for {}: {}",
+            failure_context, error
         ))
     })
 }
@@ -597,8 +621,61 @@ fn detect_implicit_host_selector(bin_dir: &Path, executable_path: &Path) -> Opti
     Some(selector)
 }
 
+fn resolve_bundled_pwsh_home(executable_path: &Path, configured_home: &Path) -> Option<PathBuf> {
+    let candidate = if configured_home.is_absolute() {
+        configured_home.to_path_buf()
+    } else {
+        executable_path.parent()?.join(configured_home)
+    };
+
+    if is_bundled_pwsh_home(&candidate) {
+        Some(candidate)
+    } else {
+        None
+    }
+}
+
+fn is_bundled_pwsh_home(path: &Path) -> bool {
+    path.join("pwsh.dll").is_file()
+        && (path.join("pwsh.deps.json").is_file() || path.join("pwsh.runtimeconfig.json").is_file())
+}
+
+fn detect_bundled_pwsh_home(executable_path: &Path) -> Option<PathBuf> {
+    let selector_name = executable_selector_name(executable_path)?;
+    if !selector_name.eq_ignore_ascii_case("pwsh") {
+        return None;
+    }
+
+    if let Some(configured_home) = env::var_os(BUNDLED_PWSH_HOME_ENV_VAR) {
+        return resolve_bundled_pwsh_home(executable_path, Path::new(&configured_home));
+    }
+
+    let parent = executable_path.parent()?;
+    if is_bundled_pwsh_home(parent) {
+        Some(parent.to_path_buf())
+    } else {
+        None
+    }
+}
+
 fn run_implicit_host_mode_if_needed() -> Result<Option<i32>> {
     let executable_path = env::current_exe()?;
+    let args: Vec<OsString> = env::args_os().skip(1).collect();
+
+    if let Some(bundled_pwsh_home) = detect_bundled_pwsh_home(&executable_path) {
+        let os = HostOs::detect()?;
+        let layout = InstallLayout::new(os)?;
+        layout.ensure_base_dirs()?;
+
+        let exit_code = run_host_for_pwsh_dir(
+            &layout,
+            os,
+            &bundled_pwsh_home,
+            args,
+            format!("bundled pwsh home '{}'", bundled_pwsh_home.display()),
+        )?;
+        return Ok(Some(exit_code));
+    }
 
     let selector_name = match executable_selector_name(&executable_path) {
         Some(selector_name) => selector_name,
@@ -616,7 +693,6 @@ fn run_implicit_host_mode_if_needed() -> Result<Option<i32>> {
         return Ok(None);
     };
 
-    let args: Vec<OsString> = env::args_os().skip(1).collect();
     let exit_code = run_host_mode(&selector, args)?;
     Ok(Some(exit_code))
 }
@@ -1579,6 +1655,51 @@ mod tests {
 
         let selector = detect_implicit_host_selector(&bin_dir, &PathBuf::from("C:/Users/test/other/pwsh-7.4.exe"));
         assert!(selector.is_none());
+    }
+
+    #[test]
+    fn is_bundled_pwsh_home_requires_pwsh_dll_and_manifest() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        fs::write(temp_dir.path().join("pwsh.dll"), []).unwrap();
+        assert!(!is_bundled_pwsh_home(temp_dir.path()));
+
+        fs::write(temp_dir.path().join("pwsh.runtimeconfig.json"), "{}").unwrap();
+        assert!(is_bundled_pwsh_home(temp_dir.path()));
+    }
+
+    #[test]
+    fn detect_bundled_pwsh_home_accepts_pwsh_name_with_sibling_payload() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        fs::write(temp_dir.path().join("pwsh.dll"), []).unwrap();
+        fs::write(temp_dir.path().join("pwsh.deps.json"), "{}").unwrap();
+
+        let bundled_home = detect_bundled_pwsh_home(&temp_dir.path().join("pwsh.exe"));
+        assert_eq!(bundled_home, Some(temp_dir.path().to_path_buf()));
+    }
+
+    #[test]
+    fn detect_bundled_pwsh_home_rejects_non_pwsh_name() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        fs::write(temp_dir.path().join("pwsh.dll"), []).unwrap();
+        fs::write(temp_dir.path().join("pwsh.deps.json"), "{}").unwrap();
+
+        let bundled_home = detect_bundled_pwsh_home(&temp_dir.path().join("multi-pwsh.exe"));
+        assert!(bundled_home.is_none());
+    }
+
+    #[test]
+    fn detect_bundled_pwsh_home_supports_relative_env_override() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let payload_dir = temp_dir.path().join("payload");
+        fs::create_dir_all(&payload_dir).unwrap();
+        fs::write(payload_dir.join("pwsh.dll"), []).unwrap();
+        fs::write(payload_dir.join("pwsh.runtimeconfig.json"), "{}").unwrap();
+
+        let bundled_home = with_env_var(BUNDLED_PWSH_HOME_ENV_VAR, Some("payload"), || {
+            detect_bundled_pwsh_home(&temp_dir.path().join("pwsh.exe"))
+        });
+
+        assert_eq!(bundled_home, Some(payload_dir));
     }
 
     #[test]
