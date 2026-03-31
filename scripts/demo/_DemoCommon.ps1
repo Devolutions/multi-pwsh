@@ -138,13 +138,7 @@ function Get-DemoBinItemPath {
     )
 
     if ($IsWindows) {
-        $exePath = Join-Path $Context.BinDir "$CommandName.exe"
-        if (Test-Path -LiteralPath $exePath) {
-            return $exePath
-        }
-
-        $cmdPath = Join-Path $Context.BinDir "$CommandName.cmd"
-        return $cmdPath
+        return (Join-Path $Context.BinDir "$CommandName.exe")
     }
 
     Join-Path $Context.BinDir $CommandName

@@ -12,6 +12,7 @@ pub struct InstallLayout {
     bin_dir: PathBuf,
     cache_dir: PathBuf,
     venvs_dir: PathBuf,
+    versions_dir: PathBuf,
     os: HostOs,
 }
 
@@ -23,19 +24,54 @@ impl InstallLayout {
             .unwrap_or_else(|| user_home.join(".pwsh"));
         let bin_dir = env::var_os("MULTI_PWSH_BIN_DIR")
             .map(PathBuf::from)
-            .unwrap_or_else(|| home.join("bin"));
+            .unwrap_or_else(|| join_layout_path(&home, "bin"));
         let cache_dir = env::var_os("MULTI_PWSH_CACHE_DIR")
             .map(PathBuf::from)
-            .unwrap_or_else(|| home.join("cache"));
+            .unwrap_or_else(|| join_layout_path(&home, "cache"));
         let venvs_dir = env::var_os("MULTI_PWSH_VENV_DIR")
             .map(PathBuf::from)
-            .unwrap_or_else(|| home.join("venv"));
+            .unwrap_or_else(|| join_layout_path(&home, "venv"));
+        let versions_dir = join_layout_path(&home, "multi");
 
         Ok(InstallLayout {
             home,
             bin_dir,
             cache_dir,
             venvs_dir,
+            versions_dir,
+            os,
+        })
+    }
+
+    pub fn from_root(os: HostOs, home: PathBuf) -> Result<Self> {
+        Self::from_root_with_versions_dir(os, home.clone(), home.join("multi"))
+    }
+
+    pub fn from_root_with_versions_dir(os: HostOs, home: PathBuf, versions_dir: PathBuf) -> Result<Self> {
+        Self::from_parts(
+            os,
+            home.clone(),
+            join_layout_path(&home, "bin"),
+            join_layout_path(&home, "cache"),
+            join_layout_path(&home, "venv"),
+            versions_dir,
+        )
+    }
+
+    pub fn from_parts(
+        os: HostOs,
+        home: PathBuf,
+        bin_dir: PathBuf,
+        cache_dir: PathBuf,
+        venvs_dir: PathBuf,
+        versions_dir: PathBuf,
+    ) -> Result<Self> {
+        Ok(InstallLayout {
+            home,
+            bin_dir,
+            cache_dir,
+            venvs_dir,
+            versions_dir,
             os,
         })
     }
@@ -49,7 +85,7 @@ impl InstallLayout {
     }
 
     pub fn aliases_file(&self) -> PathBuf {
-        self.home.join("aliases.json")
+        join_layout_path(&self.home, "aliases.json")
     }
 
     pub fn cache_dir(&self) -> PathBuf {
@@ -61,23 +97,27 @@ impl InstallLayout {
     }
 
     pub fn venv_dir(&self, name: &str) -> PathBuf {
-        self.venvs_dir().join(name)
+        join_layout_path(&self.venvs_dir(), name)
     }
 
     pub fn versions_dir(&self) -> PathBuf {
-        self.home.join("multi")
+        self.versions_dir.clone()
     }
 
     pub fn preferred_version_dir(&self, version: &Version) -> PathBuf {
-        self.versions_dir().join(version.to_string())
+        join_layout_path(&self.versions_dir(), &version.to_string())
     }
 
     fn legacy_version_dir(&self, version: &Version) -> PathBuf {
-        self.home.join(version.to_string())
+        join_layout_path(&self.home, &version.to_string())
     }
 
     pub fn executable_name(&self) -> &'static str {
         self.os.executable_name()
+    }
+
+    pub fn os(&self) -> HostOs {
+        self.os
     }
 
     pub fn version_dir(&self, version: &Version) -> PathBuf {
@@ -141,6 +181,25 @@ impl InstallLayout {
         versions.sort_by(|a, b| b.cmp(a));
         Ok(versions)
     }
+}
+
+fn join_layout_path(base: &Path, child: &str) -> PathBuf {
+    let base_text = base.to_string_lossy();
+    if !looks_like_windows_path(base_text.as_ref()) {
+        return base.join(child);
+    }
+
+    let separator = if base_text.contains('\\') { '\\' } else { '/' };
+    let mut path = base_text.to_string();
+    if !path.ends_with('\\') && !path.ends_with('/') {
+        path.push(separator);
+    }
+    path.push_str(child);
+    PathBuf::from(path)
+}
+
+fn looks_like_windows_path(path: &str) -> bool {
+    path.starts_with(r"\\") || path.starts_with("//") || (path.len() >= 2 && path.as_bytes()[1] == b':')
 }
 
 fn collect_versions_from_dir(
@@ -316,5 +375,72 @@ mod tests {
             let layout = InstallLayout::new(HostOs::Linux).unwrap();
             assert_eq!(layout.installed_versions().unwrap(), vec![new_version, legacy_version]);
         });
+    }
+
+    #[test]
+    fn from_root_ignores_multi_pwsh_env_overrides() {
+        let temp_dir = TempDir::new().unwrap();
+        let explicit_home = temp_dir.path().join("package-root");
+        let ignored_home = temp_dir.path().join("ignored-home");
+        let overridden_bin = temp_dir.path().join("override-bin");
+        let overridden_cache = temp_dir.path().join("override-cache");
+        let overridden_venv = temp_dir.path().join("override-venv");
+
+        with_layout_env(
+            Some(&ignored_home),
+            Some(&overridden_bin),
+            Some(&overridden_cache),
+            Some(&overridden_venv),
+            || {
+                let layout = InstallLayout::from_root(HostOs::Windows, explicit_home.clone()).unwrap();
+                assert_eq!(layout.home(), explicit_home.as_path());
+                assert_eq!(layout.bin_dir(), explicit_home.join("bin"));
+                assert_eq!(layout.cache_dir(), explicit_home.join("cache"));
+                assert_eq!(layout.venvs_dir(), explicit_home.join("venv"));
+                assert_eq!(layout.versions_dir(), explicit_home.join("multi"));
+            },
+        );
+    }
+
+    #[test]
+    fn from_root_with_versions_dir_supports_direct_version_roots() {
+        let temp_dir = TempDir::new().unwrap();
+        let explicit_home = temp_dir.path().join("package-root");
+
+        let layout =
+            InstallLayout::from_root_with_versions_dir(HostOs::Windows, explicit_home.clone(), explicit_home.clone())
+                .unwrap();
+
+        assert_eq!(layout.home(), explicit_home.as_path());
+        assert_eq!(layout.bin_dir(), explicit_home.join("bin"));
+        assert_eq!(layout.cache_dir(), explicit_home.join("cache"));
+        assert_eq!(layout.venvs_dir(), explicit_home.join("venv"));
+        assert_eq!(layout.versions_dir(), explicit_home);
+    }
+
+    #[test]
+    fn from_parts_supports_custom_bin_and_versions_dirs() {
+        let temp_dir = TempDir::new().unwrap();
+        let home = temp_dir.path().join("state-root");
+        let bin_dir = temp_dir.path().join("shared-bin");
+        let cache_dir = temp_dir.path().join("cache-root");
+        let venvs_dir = temp_dir.path().join("venv-root");
+        let versions_dir = temp_dir.path().join("payload-root");
+
+        let layout = InstallLayout::from_parts(
+            HostOs::Linux,
+            home.clone(),
+            bin_dir.clone(),
+            cache_dir.clone(),
+            venvs_dir.clone(),
+            versions_dir.clone(),
+        )
+        .unwrap();
+
+        assert_eq!(layout.home(), home.as_path());
+        assert_eq!(layout.bin_dir(), bin_dir);
+        assert_eq!(layout.cache_dir(), cache_dir);
+        assert_eq!(layout.venvs_dir(), venvs_dir);
+        assert_eq!(layout.versions_dir(), versions_dir);
     }
 }
