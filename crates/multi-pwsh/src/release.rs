@@ -6,11 +6,15 @@ use crate::error::{MultiPwshError, Result};
 use crate::platform::{HostArch, HostOs};
 use crate::versions::{MajorMinor, VersionSelector};
 
+const CHECKSUM_ASSET_NAME: &str = "hashes.sha256";
+
 #[derive(Clone, Debug)]
 pub struct ResolvedRelease {
     pub version: Version,
     pub asset_name: String,
     pub asset_url: String,
+    pub checksum_asset_name: String,
+    pub checksum_asset_url: String,
 }
 
 impl ResolvedRelease {
@@ -209,6 +213,17 @@ impl ReleaseClient {
 fn resolve_release_asset(release: ParsedRelease, os: HostOs, arch: HostArch) -> Result<ResolvedRelease> {
     let pattern = asset_pattern(os, arch)?;
     let tag_name = release.tag_name.clone();
+    let checksum_asset = release
+        .assets
+        .iter()
+        .find(|asset| asset.name == CHECKSUM_ASSET_NAME)
+        .cloned()
+        .ok_or_else(|| {
+            MultiPwshError::AssetNotFound(format!(
+                "checksum asset '{}' not found in {}",
+                CHECKSUM_ASSET_NAME, tag_name
+            ))
+        })?;
     let asset = release
         .assets
         .into_iter()
@@ -221,6 +236,8 @@ fn resolve_release_asset(release: ParsedRelease, os: HostOs, arch: HostArch) -> 
         version: release.version,
         asset_name: asset.name,
         asset_url: asset.browser_download_url,
+        checksum_asset_name: checksum_asset.name,
+        checksum_asset_url: checksum_asset.browser_download_url,
     })
 }
 
@@ -305,7 +322,7 @@ struct GithubRelease {
     assets: Vec<GithubAsset>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 struct GithubAsset {
     name: String,
     browser_download_url: String,
@@ -349,5 +366,46 @@ mod tests {
             "powershell-*-linux-arm64.tar.gz",
             "powershell-7.5.1-linux-x64.tar.gz"
         ));
+    }
+
+    #[test]
+    fn resolve_release_asset_includes_checksum_asset() {
+        let release = ParsedRelease {
+            tag_name: "v7.4.13".to_string(),
+            version: Version::parse("7.4.13").unwrap(),
+            assets: vec![
+                GithubAsset {
+                    name: CHECKSUM_ASSET_NAME.to_string(),
+                    browser_download_url: "https://example.invalid/hashes.sha256".to_string(),
+                },
+                GithubAsset {
+                    name: "PowerShell-7.4.13-win-x64.zip".to_string(),
+                    browser_download_url: "https://example.invalid/PowerShell-7.4.13-win-x64.zip".to_string(),
+                },
+            ],
+        };
+
+        let resolved = resolve_release_asset(release, HostOs::Windows, HostArch::X64).unwrap();
+
+        assert_eq!(resolved.asset_name, "PowerShell-7.4.13-win-x64.zip");
+        assert_eq!(resolved.checksum_asset_name, CHECKSUM_ASSET_NAME);
+        assert_eq!(resolved.checksum_asset_url, "https://example.invalid/hashes.sha256");
+    }
+
+    #[test]
+    fn resolve_release_asset_requires_checksum_asset() {
+        let release = ParsedRelease {
+            tag_name: "v7.4.13".to_string(),
+            version: Version::parse("7.4.13").unwrap(),
+            assets: vec![GithubAsset {
+                name: "PowerShell-7.4.13-win-x64.zip".to_string(),
+                browser_download_url: "https://example.invalid/PowerShell-7.4.13-win-x64.zip".to_string(),
+            }],
+        };
+
+        let error = resolve_release_asset(release, HostOs::Windows, HostArch::X64).unwrap_err();
+
+        assert!(matches!(error, MultiPwshError::AssetNotFound(_)));
+        assert!(error.to_string().contains(CHECKSUM_ASSET_NAME));
     }
 }

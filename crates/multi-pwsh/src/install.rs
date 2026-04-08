@@ -1,11 +1,12 @@
 use std::fs;
 use std::fs::File;
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Duration;
 
 use flate2::read::GzDecoder;
+use sha2::{Digest, Sha256};
 use ureq::Agent;
 
 use crate::error::{MultiPwshError, Result};
@@ -37,6 +38,8 @@ pub fn ensure_installed(
     if !archive_path.exists() {
         download_with_retry(http, &release.asset_url, &archive_path, 8)?;
     }
+
+    validate_archive_checksum(http, release, &archive_path)?;
 
     extract_archive(&archive_path, &install_dir)?;
 
@@ -85,6 +88,109 @@ fn download_with_retry(http: &Agent, url: &str, destination: &Path, retries: usi
     }
 
     Err(last_error.unwrap_or_else(|| MultiPwshError::Archive("download failed without detailed error".to_string())))
+}
+
+fn download_text_with_retry(http: &Agent, url: &str, retries: usize) -> Result<String> {
+    let mut last_error = None;
+
+    for attempt in 1..=retries {
+        let result = (|| -> Result<String> {
+            let response = http.get(url).set("User-Agent", "multi-pwsh").call()?;
+            Ok(response.into_string()?)
+        })();
+
+        match result {
+            Ok(body) => return Ok(body),
+            Err(error) => {
+                last_error = Some(error);
+                if attempt < retries {
+                    let delay_seconds = 2u64.pow(attempt as u32);
+                    thread::sleep(Duration::from_secs(delay_seconds.min(30)));
+                }
+            }
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| MultiPwshError::Archive("download failed without detailed error".to_string())))
+}
+
+fn validate_archive_checksum(http: &Agent, release: &ResolvedRelease, archive_path: &Path) -> Result<()> {
+    let checksums = download_text_with_retry(http, &release.checksum_asset_url, 8)?;
+    let expected = find_expected_checksum(&checksums, &release.asset_name)?;
+    let actual = sha256_file(archive_path)?;
+
+    if expected.eq_ignore_ascii_case(&actual) {
+        return Ok(());
+    }
+
+    let _ = fs::remove_file(archive_path);
+    Err(MultiPwshError::Archive(format!(
+        "checksum mismatch for '{}' using '{}': expected {}, got {}",
+        release.asset_name, release.checksum_asset_name, expected, actual
+    )))
+}
+
+fn find_expected_checksum(checksums: &str, asset_name: &str) -> Result<String> {
+    for (index, line) in checksums.lines().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let checksum = trimmed
+            .split_ascii_whitespace()
+            .next()
+            .ok_or_else(|| MultiPwshError::Archive(format!("malformed checksum line {}", index + 1)))?;
+
+        if !is_valid_sha256_hex(checksum) {
+            return Err(MultiPwshError::Archive(format!(
+                "invalid sha256 checksum on line {}",
+                index + 1
+            )));
+        }
+
+        let file_name = trimmed[checksum.len()..].trim_start().trim_start_matches('*');
+        if file_name.is_empty() {
+            return Err(MultiPwshError::Archive(format!(
+                "missing file name in checksum line {}",
+                index + 1
+            )));
+        }
+
+        if file_name == asset_name {
+            return Ok(checksum.to_ascii_lowercase());
+        }
+    }
+
+    Err(MultiPwshError::Archive(format!(
+        "checksum entry for '{}' not found in checksum file",
+        asset_name
+    )))
+}
+
+fn is_valid_sha256_hex(value: &str) -> bool {
+    value.len() == 64 && value.as_bytes().iter().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn sha256_file(path: &Path) -> Result<String> {
+    let mut file = File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0u8; 8192];
+
+    loop {
+        let read = file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+
+    let digest = hasher.finalize();
+    let mut output = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        output.push_str(&format!("{:02x}", byte));
+    }
+    Ok(output)
 }
 
 fn cache_keep_archives() -> bool {
@@ -237,5 +343,58 @@ mod tests {
         with_cache_keep(Some("false"), || {
             assert!(!cache_keep_archives());
         });
+    }
+
+    #[test]
+    fn find_expected_checksum_accepts_common_sha256_formats() {
+        let checksum = find_expected_checksum(
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  PowerShell-7.4.13-win-x64.zip\n\
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb *other.zip",
+            "PowerShell-7.4.13-win-x64.zip",
+        )
+        .unwrap();
+
+        assert_eq!(
+            checksum,
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        );
+    }
+
+    #[test]
+    fn find_expected_checksum_rejects_invalid_lines() {
+        let error = find_expected_checksum(
+            "not-a-hash  PowerShell-7.4.13-win-x64.zip",
+            "PowerShell-7.4.13-win-x64.zip",
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("invalid sha256 checksum"));
+    }
+
+    #[test]
+    fn find_expected_checksum_requires_matching_asset() {
+        let error = find_expected_checksum(
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  other.zip",
+            "PowerShell-7.4.13-win-x64.zip",
+        )
+        .unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("checksum entry for 'PowerShell-7.4.13-win-x64.zip' not found"));
+    }
+
+    #[test]
+    fn sha256_file_hashes_file_contents() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("sample.txt");
+        fs::write(&path, b"abc").unwrap();
+
+        let digest = sha256_file(&path).unwrap();
+
+        assert_eq!(
+            digest,
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
     }
 }

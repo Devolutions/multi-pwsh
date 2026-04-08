@@ -21,6 +21,7 @@ zip = { version = "0.6", default-features = false, features = ["deflate"] }
 home = "0.5"
 tempfile = "3.12"
 pwsh-host = { path = "../pwsh-host" }
+sha2 = "0.10"
 
 [build-dependencies]
 winresource = "0.1"
