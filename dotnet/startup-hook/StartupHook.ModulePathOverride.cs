@@ -8,7 +8,7 @@ public static partial class StartupHook
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static string GetModuleVenvPathReplacement()
     {
-        return GetModuleVenvPath() ?? string.Empty;
+        return GetModuleVenvModulesPath() ?? string.Empty;
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
@@ -22,14 +22,14 @@ public static partial class StartupHook
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static string GetConfigModulePathReplacement(object powerShellConfig, int scope)
     {
-        return GetModuleVenvPath() ?? string.Empty;
+        return GetModuleVenvModulesPath() ?? string.Empty;
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static IEnumerable<string> GetEnumeratedModulePathReplacement(bool includeSystemModulePath, object context)
     {
         var yieldedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        string? moduleVenvPath = GetModuleVenvPath();
+        string? moduleVenvPath = GetModuleVenvModulesPath();
 
         if (!string.IsNullOrWhiteSpace(moduleVenvPath) && yieldedPaths.Add(moduleVenvPath))
         {

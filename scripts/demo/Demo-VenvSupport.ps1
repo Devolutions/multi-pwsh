@@ -92,14 +92,18 @@ $venvRoot = Join-Path $HOME '.pwsh\venv'
 $classicRoot = Join-Path $venvRoot $classicVenv
 $modernRoot = Join-Path $venvRoot $modernVenv
 $copyRoot = Join-Path $venvRoot $copyVenv
+$classicModulesRoot = Join-Path $classicRoot 'Modules'
+$modernModulesRoot = Join-Path $modernRoot 'Modules'
+$copyModulesRoot = Join-Path $copyRoot 'Modules'
 $copyArchive = Join-Path $HOME '.pwsh\graph-auth-demo.zip'
 $copyArchiveDisplay = '~/.pwsh/graph-auth-demo.zip'
 
 $psGetInstallQuery = @'
 $ProgressPreference = 'SilentlyContinue'
 Import-Module PowerShellGet -ErrorAction Stop
-Save-Module -Name Microsoft.Graph.Authentication -Repository PSGallery -Path $env:PSMODULE_VENV_PATH -Force -ErrorAction Stop
-Push-Location $env:PSMODULE_VENV_PATH
+$venvModulesPath = Join-Path $env:PSMODULE_VENV_PATH 'Modules'
+Save-Module -Name Microsoft.Graph.Authentication -Repository PSGallery -Path $venvModulesPath -Force -ErrorAction Stop
+Push-Location $venvModulesPath
 try {
     Get-Item .\Microsoft.Graph.Authentication
 }
@@ -111,7 +115,8 @@ finally {
 $psResourceInstallQuery = @'
 $ProgressPreference = 'SilentlyContinue'
 Install-PSResource -Name Az.Accounts -Repository PSGallery -TrustRepository -Quiet -Reinstall -ErrorAction Stop
-Push-Location $env:PSMODULE_VENV_PATH
+$venvModulesPath = Join-Path $env:PSMODULE_VENV_PATH 'Modules'
+Push-Location $venvModulesPath
 try {
     Get-Item .\Az.Accounts
 }
@@ -146,6 +151,7 @@ function Show-HomePath([string]$Path) {
 $modulePathEntries = $env:PSModulePath -split [IO.Path]::PathSeparator | ForEach-Object { Show-HomePath $_ }
 [pscustomobject]@{
     VenvPath = Show-HomePath $env:PSMODULE_VENV_PATH
+    VenvModulesPath = Show-HomePath (Join-Path $env:PSMODULE_VENV_PATH 'Modules')
     PowerShellGetCurrentUserModules = Show-HomePath ($powerShellGet.SessionState.PSVariable.GetValue("MyDocumentsModulesPath"))
     PowerShellGetPsGetPathCurrentUser = Show-HomePath (($powerShellGet.SessionState.PSVariable.GetValue("PSGetPath")).CurrentUserModules)
     PSModulePathEntries = ($modulePathEntries -join [Environment]::NewLine)
@@ -197,12 +203,12 @@ try {
         & $multiPwshExe host $pwshSelector -venv $modernVenv -NoLogo -NoProfile -NonInteractive -Command $psResourceInstallQuery | Write-NormalizedOutput
     }
 
-    Invoke-DemoStep '7. cd into the graph-auth venv and list the important relative paths' "cd ~/.pwsh/venv/$classicVenv; <show top-level folders, manifests, psm1 files, and identity DLLs>" {
-        Show-VenvListing -Path $classicRoot
+    Invoke-DemoStep '7. cd into the graph-auth venv Modules directory and list the important relative paths' "cd ~/.pwsh/venv/$classicVenv/Modules; <show top-level folders, manifests, psm1 files, and identity DLLs>" {
+        Show-VenvListing -Path $classicModulesRoot
     }
 
-    Invoke-DemoStep '8. cd into the az-auth venv and list the important relative paths' "cd ~/.pwsh/venv/$modernVenv; <show top-level folders, manifests, psm1 files, and identity DLLs>" {
-        Show-VenvListing -Path $modernRoot
+    Invoke-DemoStep '8. cd into the az-auth venv Modules directory and list the important relative paths' "cd ~/.pwsh/venv/$modernVenv/Modules; <show top-level folders, manifests, psm1 files, and identity DLLs>" {
+        Show-VenvListing -Path $modernModulesRoot
     }
 
     Invoke-DemoStep '9. Using -venv graph-auth exposes Microsoft.Graph.Authentication without leaking Az.Accounts' "$multiPwshDisplay host $pwshSelector -venv $classicVenv -NoLogo -NoProfile -NonInteractive -Command <module isolation query>" {

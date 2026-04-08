@@ -51,6 +51,10 @@ Describe "Venv cmdlet behavior for $PwshAlias" {
             return $normalizedPath.StartsWith($normalizedRoot)
         }
 
+        function Get-VenvModulesRoot {
+            return (Join-Path $VenvRoot 'Modules')
+        }
+
         function Invoke-InVenv {
             param(
                 [Parameter(Mandatory = $true)][string]$CommandText,
@@ -150,7 +154,7 @@ function Get-VenvProbe {
         }
 
         Wait-StartupHookReady
-        New-SyntheticVenvModule -Root $VenvRoot
+        New-SyntheticVenvModule -Root (Get-VenvModulesRoot)
     }
 
     It 'sets PSMODULE_VENV_PATH to the venv root' {
@@ -158,11 +162,11 @@ function Get-VenvProbe {
         Normalize-PathText -PathText $result.Output.Trim() | Should -Be (Normalize-PathText -PathText $VenvRoot)
     }
 
-    It 'prepends venv path in PSModulePath' {
+    It 'prepends the venv Modules path in PSModulePath' {
         $result = Invoke-InVenv -CommandText 'Write-Output $env:PSModulePath'
         $entries = [Environment]::ExpandEnvironmentVariables($result.Output.Trim()).Split([IO.Path]::PathSeparator, [StringSplitOptions]::RemoveEmptyEntries)
         $entries[0] | Should -Not -BeNullOrEmpty
-        Normalize-PathText -PathText $entries[0] | Should -Be (Normalize-PathText -PathText $VenvRoot)
+        Normalize-PathText -PathText $entries[0] | Should -Be (Normalize-PathText -PathText (Get-VenvModulesRoot))
     }
 
     It 'overrides module-management commands in hosted session' {
@@ -214,7 +218,7 @@ $results | ConvertTo-Json -Compress -Depth 5
         $moduleBase = $listResult.Output.Trim()
 
         $moduleBase | Should -Not -BeNullOrEmpty
-        (Test-PathUnderRoot -Path $moduleBase -Root $VenvRoot) | Should -BeTrue
+        (Test-PathUnderRoot -Path $moduleBase -Root (Get-VenvModulesRoot)) | Should -BeTrue
 
         $importQuery = "Import-Module PwshHost.VenvProbe -ErrorAction Stop; Get-VenvProbe"
         $importResult = Invoke-InVenv -CommandText $importQuery
@@ -227,7 +231,7 @@ $results | ConvertTo-Json -Compress -Depth 5
         $installedLocation = $result.Output.Trim()
 
         $installedLocation | Should -Not -BeNullOrEmpty
-        (Test-PathUnderRoot -Path $installedLocation -Root $VenvRoot) | Should -BeTrue
+        (Test-PathUnderRoot -Path $installedLocation -Root (Get-VenvModulesRoot)) | Should -BeTrue
     }
 
     It 'keeps Get-InstalledPSResource scoped to venv content' {
@@ -236,7 +240,7 @@ $results | ConvertTo-Json -Compress -Depth 5
         $installedLocation = $result.Output.Trim()
 
         $installedLocation | Should -Not -BeNullOrEmpty
-        (Test-PathUnderRoot -Path $installedLocation -Root $VenvRoot) | Should -BeTrue
+        (Test-PathUnderRoot -Path $installedLocation -Root (Get-VenvModulesRoot)) | Should -BeTrue
     }
 
     It 'runs Get-PSRepository without explicit PowerShellGet import' {
@@ -266,7 +270,7 @@ Install-PSResource -Name Yayaml -Repository PSGallery -TrustRepository -Quiet -R
         }
 
         $installedLocations.Count | Should -BeGreaterThan 0
-        ($installedLocations | Where-Object { Test-PathUnderRoot -Path $_ -Root $VenvRoot } | Measure-Object).Count | Should -BeGreaterThan 0
+        ($installedLocations | Where-Object { Test-PathUnderRoot -Path $_ -Root (Get-VenvModulesRoot) } | Measure-Object).Count | Should -BeGreaterThan 0
     }
 
     It 'supports Install-Module into venv (online)' -Skip:(-not $EnableOnlineTests) {
@@ -291,6 +295,6 @@ $locations = @(Get-InstalledModule Yayaml -ErrorAction Stop | Select-Object -Exp
         }
 
         $installedLocations.Count | Should -BeGreaterThan 0
-        ($installedLocations | Where-Object { Test-PathUnderRoot -Path $_ -Root $VenvRoot } | Measure-Object).Count | Should -BeGreaterThan 0
+        ($installedLocations | Where-Object { Test-PathUnderRoot -Path $_ -Root (Get-VenvModulesRoot) } | Measure-Object).Count | Should -BeGreaterThan 0
     }
 }

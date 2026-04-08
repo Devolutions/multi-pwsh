@@ -198,7 +198,7 @@ Native host mode:
 
 - `multi-pwsh host <selector> ...` runs PowerShell through native hosting (`pwsh-host` crate) instead of launching a `pwsh` subprocess.
 - `<selector>` supports `7`, `7.4`, `7.4.13`, or alias-form selectors such as `pwsh-7.4`.
-- `-VirtualEnvironment <name>` and `-venv <name>` are consumed by `multi-pwsh` before handing control to PowerShell and set `PSModulePath` to the selected venv root for that launch.
+- `-VirtualEnvironment <name>` and `-venv <name>` are consumed by `multi-pwsh` before handing control to PowerShell and set `PSModulePath` to the selected venv module root for that launch.
 - `PSMODULE_VENV_PATH` can also be used as an explicit path-based venv selector for hosted launches. If it is already set in the environment, `multi-pwsh host` treats it as an intentional venv opt-in.
 - Alias lifecycle now maintains native host shims as hard links to `multi-pwsh` automatically during install/update/doctor alias repair.
 - On Windows, alias command paths are `pwsh-*.exe` host shims in `MULTI_PWSH_BIN_DIR` (default: `~/.pwsh/bin`).
@@ -209,7 +209,7 @@ Native host mode:
 
 ### Virtual environments
 
-`multi-pwsh` virtual environments provide isolated PowerShell module roots. They are conceptually similar to Python virtual environments, but in this first version the isolation is implemented by selecting a venv-specific `PSModulePath` root for hosted launches.
+`multi-pwsh` virtual environments provide isolated PowerShell module roots. They are conceptually similar to Python virtual environments, but in this first version the isolation is implemented by selecting a venv-specific `PSModulePath` entry for hosted launches.
 
 By default, venvs live under `~/.pwsh/venv/<name>`. If `MULTI_PWSH_VENV_DIR` is set, they live under that directory instead.
 
@@ -245,20 +245,21 @@ $env:PSMODULE_VENV_PATH = Join-Path $HOME ".pwsh/venv/msgraph"
 multi-pwsh host 7.4 -NoLogo -NoProfile
 ```
 
-`-venv <name>` and `-VirtualEnvironment <name>` accept a venv name and resolve it to a path before launch. `PSMODULE_VENV_PATH` is the lower-level path form of the same idea and is useful when a parent PowerShell session already knows which venv path should flow to child hosted sessions.
+`-venv <name>` and `-VirtualEnvironment <name>` accept a venv name and resolve it to a base path before launch. `PSMODULE_VENV_PATH` is the lower-level path form of the same idea and is useful when a parent PowerShell session already knows which venv path should flow to child hosted sessions.
 
 If both a venv flag and `PSMODULE_VENV_PATH` are present, the flag wins for that launch because `multi-pwsh` resolves the named venv and sets the effective path explicitly. If neither is present, no venv-specific startup-hook behavior is enabled.
 
 #### Populate a venv with modules
 
-Venvs are module discovery roots, so modules should live directly under `<venv-root>/<ModuleName>`.
+Venvs are base directories, and the hosted PowerShell module root is `<venv-root>/Modules`. Modules should live under `<venv-root>/Modules/<ModuleName>`.
 
-For the current implementation, the safest way to place modules into a venv is to save them directly into that venv root:
+For the current implementation, the safest way to place modules into a venv is to save them into that `Modules` directory:
 
 ```powershell
 $venvRoot = Join-Path $HOME ".pwsh/venv/msgraph"
-Save-Module -Name Microsoft.Graph.Authentication -Repository PSGallery -Path $venvRoot -Force
-Save-Module -Name Microsoft.Graph.Users -Repository PSGallery -Path $venvRoot -Force
+$venvModules = Join-Path $venvRoot "Modules"
+Save-Module -Name Microsoft.Graph.Authentication -Repository PSGallery -Path $venvModules -Force
+Save-Module -Name Microsoft.Graph.Users -Repository PSGallery -Path $venvModules -Force
 ```
 
 Then use the venv when launching PowerShell:
@@ -282,7 +283,7 @@ Import is intentionally conservative: importing into an existing destination ven
 #### Current behavior and limitations
 
 - Venv selection changes module discovery and import precedence for hosted launches.
-- In this first version, `Install-Module` is not automatically redirected into the venv just because `-venv` is used.
+- `Install-Module` and `Install-PSResource` use the venv's `Modules` directory during hosted launches.
 - PowerShell may still include some built-in or default module paths in the effective `PSModulePath`; the venv is intended to be the selected module root, not a perfect process-level sandbox.
 - The venv feature currently applies to `multi-pwsh host ...` and implicit host shims such as `pwsh-7.4.exe`, not to arbitrary external `pwsh` processes.
 

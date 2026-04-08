@@ -16,11 +16,13 @@ public static partial class StartupHook
     {
         lock (s_powerShellGetPatchLock)
         {
-            string? moduleVenvPath = GetModuleVenvPath();
+            string? moduleVenvPath = GetModuleVenvModulesPath();
             if (string.IsNullOrWhiteSpace(moduleVenvPath))
             {
                 return;
             }
+
+            string moduleVenvScriptsPath = GetModuleVenvScriptsPath() ?? moduleVenvPath;
 
             PSModuleInfo? module = GetLiveModuleFromCurrentRunspace("PowerShellGet");
             if (module is null)
@@ -37,7 +39,7 @@ public static partial class StartupHook
 
             if (module is not null)
             {
-                PatchPowerShellGetModuleSessionState(module, moduleVenvPath);
+                PatchPowerShellGetModuleSessionState(module, moduleVenvPath, moduleVenvScriptsPath);
             }
         }
     }
@@ -46,13 +48,14 @@ public static partial class StartupHook
     {
         lock (s_powerShellGetPatchLock)
         {
-            string? moduleVenvPath = GetModuleVenvPath();
+            string? moduleVenvPath = GetModuleVenvModulesPath();
             if (string.IsNullOrWhiteSpace(moduleVenvPath))
             {
                 return;
             }
 
-            PatchPowerShellGetModuleSessionState(module, moduleVenvPath);
+            string moduleVenvScriptsPath = GetModuleVenvScriptsPath() ?? moduleVenvPath;
+            PatchPowerShellGetModuleSessionState(module, moduleVenvPath, moduleVenvScriptsPath);
         }
     }
 
@@ -76,7 +79,7 @@ public static partial class StartupHook
         bool allowPrerelease,
         bool passThru)
     {
-        string? moduleVenvPath = GetModuleVenvPath();
+        string? moduleVenvPath = GetModuleVenvModulesPath();
         if (string.IsNullOrWhiteSpace(moduleVenvPath) || name is not { Length: > 0 })
         {
             yield break;
@@ -135,7 +138,7 @@ public static partial class StartupHook
         bool allVersions,
         bool allowPrerelease)
     {
-        string? moduleVenvPath = GetModuleVenvPath();
+        string? moduleVenvPath = GetModuleVenvModulesPath();
         if (string.IsNullOrWhiteSpace(moduleVenvPath))
         {
             yield break;
@@ -302,6 +305,8 @@ public static partial class StartupHook
         bool allowPrerelease,
         string moduleVenvPath)
     {
+        Directory.CreateDirectory(moduleVenvPath);
+
         using PowerShell powerShell = PowerShell.Create(RunspaceMode.CurrentRunspace);
         powerShell.AddCommand("PowerShellGet\\Save-Module");
         powerShell.AddParameter("Name", name);
@@ -326,14 +331,15 @@ public static partial class StartupHook
 
     private static void EnsurePowerShellGetVenvPatchedCore(Runspace? runspace)
     {
-        string? moduleVenvPath = GetModuleVenvPath();
+        string? moduleVenvPath = GetModuleVenvModulesPath();
         if (string.IsNullOrWhiteSpace(moduleVenvPath))
         {
             return;
         }
 
+        string moduleVenvScriptsPath = GetModuleVenvScriptsPath() ?? moduleVenvPath;
         PSModuleInfo module = EnsurePowerShellGetModuleLoaded(runspace);
-        PatchPowerShellGetModuleSessionState(module, moduleVenvPath);
+        PatchPowerShellGetModuleSessionState(module, moduleVenvPath, moduleVenvScriptsPath);
     }
 
     private static PSModuleInfo EnsurePowerShellGetModuleLoaded(Runspace? runspace)
@@ -384,7 +390,10 @@ public static partial class StartupHook
         return powerShell.Invoke<PSModuleInfo>().First();
     }
 
-    private static void PatchPowerShellGetModuleSessionState(PSModuleInfo module, string moduleVenvPath)
+    private static void PatchPowerShellGetModuleSessionState(
+        PSModuleInfo module,
+        string moduleVenvPath,
+        string moduleVenvScriptsPath)
     {
         SessionState moduleSessionState = module.SessionState;
         PSVariableIntrinsics variables = moduleSessionState.PSVariable;
@@ -392,8 +401,10 @@ public static partial class StartupHook
         object? programFilesModulesPath = variables.GetValue("ProgramFilesModulesPath");
         object? programFilesScriptsPath = variables.GetValue("ProgramFilesScriptsPath");
         variables.Set("MyDocumentsModulesPath", moduleVenvPath);
-        variables.Set("MyDocumentsScriptsPath", moduleVenvPath);
-        variables.Set("PSGetPath", CreatePsGetPathObject(programFilesModulesPath, programFilesScriptsPath, moduleVenvPath));
+        variables.Set("MyDocumentsScriptsPath", moduleVenvScriptsPath);
+        variables.Set(
+            "PSGetPath",
+            CreatePsGetPathObject(programFilesModulesPath, programFilesScriptsPath, moduleVenvPath, moduleVenvScriptsPath));
         variables.Set("PSGetInstalledModules", null);
 
         object internalSessionState = GetInternalSessionState(moduleSessionState);
@@ -454,7 +465,7 @@ public static partial class StartupHook
 
     public static IEnumerable<PSModuleInfo> InvokePowerShellGetTestModuleInstalled(string name, string? requiredVersion)
     {
-        string? moduleVenvPath = GetModuleVenvPath();
+        string? moduleVenvPath = GetModuleVenvModulesPath();
         if (string.IsNullOrWhiteSpace(moduleVenvPath))
         {
             return Array.Empty<PSModuleInfo>();
@@ -503,13 +514,17 @@ public static partial class StartupHook
         return internalField.GetValue(sessionState)!;
     }
 
-    private static PSObject CreatePsGetPathObject(object? allUsersModules, object? allUsersScripts, string currentUserPath)
+    private static PSObject CreatePsGetPathObject(
+        object? allUsersModules,
+        object? allUsersScripts,
+        string currentUserModulesPath,
+        string currentUserScriptsPath)
     {
         PSObject result = new();
         result.Properties.Add(new PSNoteProperty("AllUsersModules", allUsersModules));
         result.Properties.Add(new PSNoteProperty("AllUsersScripts", allUsersScripts));
-        result.Properties.Add(new PSNoteProperty("CurrentUserModules", currentUserPath));
-        result.Properties.Add(new PSNoteProperty("CurrentUserScripts", currentUserPath));
+        result.Properties.Add(new PSNoteProperty("CurrentUserModules", currentUserModulesPath));
+        result.Properties.Add(new PSNoteProperty("CurrentUserScripts", currentUserScriptsPath));
         result.TypeNames.Insert(0, "Microsoft.PowerShell.Commands.PSGetPath");
         return result;
     }

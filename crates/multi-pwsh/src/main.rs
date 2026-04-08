@@ -767,6 +767,7 @@ fn run_venv(args: &[String]) -> Result<()> {
             let name = validate_venv_name(&args[1])?;
             let venv_dir = layout.venv_dir(name);
             fs::create_dir_all(&venv_dir)?;
+            fs::create_dir_all(venv_dir.join("Modules"))?;
 
             println!("Virtual environment: {}", name);
             println!("Path: {}", venv_dir.display());
