@@ -13,8 +13,8 @@ pub struct ResolvedRelease {
     pub version: Version,
     pub asset_name: String,
     pub asset_url: String,
-    pub checksum_asset_name: String,
-    pub checksum_asset_url: String,
+    pub checksum_asset_name: Option<String>,
+    pub checksum_asset_url: Option<String>,
 }
 
 impl ResolvedRelease {
@@ -217,13 +217,7 @@ fn resolve_release_asset(release: ParsedRelease, os: HostOs, arch: HostArch) -> 
         .assets
         .iter()
         .find(|asset| asset.name == CHECKSUM_ASSET_NAME)
-        .cloned()
-        .ok_or_else(|| {
-            MultiPwshError::AssetNotFound(format!(
-                "checksum asset '{}' not found in {}",
-                CHECKSUM_ASSET_NAME, tag_name
-            ))
-        })?;
+        .cloned();
     let asset = release
         .assets
         .into_iter()
@@ -236,8 +230,8 @@ fn resolve_release_asset(release: ParsedRelease, os: HostOs, arch: HostArch) -> 
         version: release.version,
         asset_name: asset.name,
         asset_url: asset.browser_download_url,
-        checksum_asset_name: checksum_asset.name,
-        checksum_asset_url: checksum_asset.browser_download_url,
+        checksum_asset_name: checksum_asset.as_ref().map(|asset| asset.name.clone()),
+        checksum_asset_url: checksum_asset.map(|asset| asset.browser_download_url),
     })
 }
 
@@ -388,12 +382,15 @@ mod tests {
         let resolved = resolve_release_asset(release, HostOs::Windows, HostArch::X64).unwrap();
 
         assert_eq!(resolved.asset_name, "PowerShell-7.4.13-win-x64.zip");
-        assert_eq!(resolved.checksum_asset_name, CHECKSUM_ASSET_NAME);
-        assert_eq!(resolved.checksum_asset_url, "https://example.invalid/hashes.sha256");
+        assert_eq!(resolved.checksum_asset_name.as_deref(), Some(CHECKSUM_ASSET_NAME));
+        assert_eq!(
+            resolved.checksum_asset_url.as_deref(),
+            Some("https://example.invalid/hashes.sha256")
+        );
     }
 
     #[test]
-    fn resolve_release_asset_requires_checksum_asset() {
+    fn resolve_release_asset_allows_missing_checksum_asset() {
         let release = ParsedRelease {
             tag_name: "v7.4.13".to_string(),
             version: Version::parse("7.4.13").unwrap(),
@@ -403,9 +400,9 @@ mod tests {
             }],
         };
 
-        let error = resolve_release_asset(release, HostOs::Windows, HostArch::X64).unwrap_err();
+        let resolved = resolve_release_asset(release, HostOs::Windows, HostArch::X64).unwrap();
 
-        assert!(matches!(error, MultiPwshError::AssetNotFound(_)));
-        assert!(error.to_string().contains(CHECKSUM_ASSET_NAME));
+        assert!(resolved.checksum_asset_name.is_none());
+        assert!(resolved.checksum_asset_url.is_none());
     }
 }
