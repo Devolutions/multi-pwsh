@@ -21,7 +21,7 @@ use aliases::{
     read_layout_hint, read_minor_pin, read_minor_pins, remove_alias, set_minor_pin, AliasSelector,
 };
 use error::{MultiPwshError, Result};
-use install::ensure_installed;
+use install::{ensure_installed, ChecksumSource};
 use layout::InstallLayout;
 use package::{
     load_package_metadata, package_layout, persist_installed_version_registration, persist_installer_properties,
@@ -49,6 +49,13 @@ fn print_usage() {
 struct ReleaseSelectionOptions {
     arch: Option<HostArch>,
     include_prerelease: bool,
+    checksum_source: ChecksumSource,
+}
+
+#[derive(Debug)]
+struct InstallCommandOptions {
+    package: PackageInstallOptions,
+    checksum_source: ChecksumSource,
 }
 
 #[derive(Clone, Debug)]
@@ -959,9 +966,18 @@ fn parse_release_selection_options(args: &[String]) -> Result<ReleaseSelectionOp
     let mut arch = None;
     let mut arch_specified = false;
     let mut include_prerelease = false;
+    let mut checksum_source = ChecksumSource::ReleaseAsset;
+    let mut checksum_source_specified = false;
 
     let mut index = 0usize;
     while index < args.len() {
+        if let Some(next_index) =
+            parse_checksum_cli_option(args, index, &mut checksum_source, &mut checksum_source_specified)?
+        {
+            index = next_index;
+            continue;
+        }
+
         match args[index].as_str() {
             "--arch" | "-a" => {
                 if index + 1 >= args.len() {
@@ -996,7 +1012,7 @@ fn parse_release_selection_options(args: &[String]) -> Result<ReleaseSelectionOp
             }
             _ => {
                 return Err(MultiPwshError::InvalidArguments(
-                    "expected optional --arch <value> and/or --include-prerelease".to_string(),
+                    "expected optional --arch <value>, --include-prerelease, --skip-hash-verification, and/or --hash-file <url-or-path>".to_string(),
                 ));
             }
         }
@@ -1005,7 +1021,66 @@ fn parse_release_selection_options(args: &[String]) -> Result<ReleaseSelectionOp
     Ok(ReleaseSelectionOptions {
         arch,
         include_prerelease,
+        checksum_source,
     })
+}
+
+fn parse_checksum_cli_option(
+    args: &[String],
+    index: usize,
+    checksum_source: &mut ChecksumSource,
+    checksum_source_specified: &mut bool,
+) -> Result<Option<usize>> {
+    match args[index].as_str() {
+        "--skip-hash-verification" | "--skip-checksum-verification" => {
+            set_checksum_source(checksum_source, checksum_source_specified, ChecksumSource::Skip)?;
+            Ok(Some(index + 1))
+        }
+        "--hash-file" | "--checksum-file" => {
+            if index + 1 >= args.len() {
+                return Err(MultiPwshError::InvalidArguments(
+                    "expected value after --hash-file".to_string(),
+                ));
+            }
+
+            let parsed = parse_checksum_source_argument(&args[index + 1])?;
+            set_checksum_source(checksum_source, checksum_source_specified, parsed)?;
+            Ok(Some(index + 2))
+        }
+        _ => Ok(None),
+    }
+}
+
+fn set_checksum_source(
+    checksum_source: &mut ChecksumSource,
+    checksum_source_specified: &mut bool,
+    next_source: ChecksumSource,
+) -> Result<()> {
+    if *checksum_source_specified {
+        return Err(MultiPwshError::InvalidArguments(
+            "checksum verification source can only be specified once; choose only one of --skip-hash-verification or --hash-file <url-or-path>".to_string(),
+        ));
+    }
+
+    *checksum_source = next_source;
+    *checksum_source_specified = true;
+    Ok(())
+}
+
+fn parse_checksum_source_argument(value: &str) -> Result<ChecksumSource> {
+    let normalized = value.to_ascii_lowercase();
+    if normalized.starts_with("http://") || normalized.starts_with("https://") {
+        return Ok(ChecksumSource::Url(value.to_string()));
+    }
+
+    if value.contains("://") {
+        return Err(MultiPwshError::InvalidArguments(format!(
+            "unsupported checksum URL '{}'; expected http:// or https://, or provide a local file path",
+            value
+        )));
+    }
+
+    Ok(ChecksumSource::File(PathBuf::from(value)))
 }
 
 fn parse_package_layout_options(args: &[String]) -> Result<PackageLayoutOptions> {
@@ -1065,15 +1140,24 @@ fn parse_package_layout_options(args: &[String]) -> Result<PackageLayoutOptions>
     Ok(PackageLayoutOptions { scope, root })
 }
 
-fn parse_package_install_options(args: &[String]) -> Result<PackageInstallOptions> {
+fn parse_package_install_options(args: &[String]) -> Result<InstallCommandOptions> {
     let os = HostOs::detect()?;
     let mut options = PackageInstallOptions::with_platform_defaults(PackageScope::CurrentUser, os);
     let mut scope_specified = false;
     let mut root_specified = false;
     let mut arch_specified = false;
+    let mut checksum_source = ChecksumSource::ReleaseAsset;
+    let mut checksum_source_specified = false;
     let mut index = 0usize;
 
     while index < args.len() {
+        if let Some(next_index) =
+            parse_checksum_cli_option(args, index, &mut checksum_source, &mut checksum_source_specified)?
+        {
+            index = next_index;
+            continue;
+        }
+
         match args[index].as_str() {
             "--scope" => {
                 if index + 1 >= args.len() {
@@ -1201,7 +1285,7 @@ fn parse_package_install_options(args: &[String]) -> Result<PackageInstallOption
             }
             _ => {
                 return Err(MultiPwshError::InvalidArguments(
-                    "unexpected install options; expected scope/root/arch/include-prerelease and Windows integration flags"
+                    "unexpected install options; expected scope/root/arch/include-prerelease/checksum flags and Windows integration flags"
                         .to_string(),
                 ));
             }
@@ -1209,7 +1293,10 @@ fn parse_package_install_options(args: &[String]) -> Result<PackageInstallOption
     }
 
     options.validate(os)?;
-    Ok(options)
+    Ok(InstallCommandOptions {
+        package: options,
+        checksum_source,
+    })
 }
 
 fn requires_scoped_install_backend(args: &[String]) -> bool {
@@ -1356,9 +1443,11 @@ fn parse_windows_uninstall_options(args: &[String]) -> Result<WindowsUninstallOp
     Ok(WindowsUninstallOptions { scope, root, force })
 }
 
-fn run_package_install(selector_input: &str, options: PackageInstallOptions) -> Result<()> {
+fn run_package_install(selector_input: &str, install_options: InstallCommandOptions) -> Result<()> {
     let selector = parse_install_selector(selector_input)?;
     let os = HostOs::detect()?;
+    let options = install_options.package;
+    let checksum_source = install_options.checksum_source;
     let arch = options.arch.unwrap_or_else(HostArch::detect);
     let layout = package_layout(os, arch, options.scope, options.install_root.clone())?;
     layout.ensure_base_dirs()?;
@@ -1377,7 +1466,7 @@ fn run_package_install(selector_input: &str, options: PackageInstallOptions) -> 
     let mut touched_majors: Vec<u64> = Vec::new();
 
     for release in releases {
-        let executable_path = ensure_installed(&layout, release_client.http_client(), os, &release)?;
+        let executable_path = ensure_installed(&layout, release_client.http_client(), os, &release, &checksum_source)?;
         let patch_alias = create_or_update_patch_alias(&layout, os, &release.version, &executable_path)?;
         let version_path = executable_path.parent().unwrap_or_else(|| Path::new(""));
 
@@ -1706,7 +1795,12 @@ fn run_package(args: &[String]) -> Result<()> {
     }
 }
 
-fn run_install(selector_input: &str, arch: Option<HostArch>, include_prerelease: bool) -> Result<()> {
+fn run_install(
+    selector_input: &str,
+    arch: Option<HostArch>,
+    include_prerelease: bool,
+    checksum_source: ChecksumSource,
+) -> Result<()> {
     let selector = parse_install_selector(selector_input)?;
     let os = HostOs::detect()?;
     let arch = arch.unwrap_or_else(HostArch::detect);
@@ -1727,7 +1821,7 @@ fn run_install(selector_input: &str, arch: Option<HostArch>, include_prerelease:
     let mut touched_majors: Vec<u64> = Vec::new();
 
     for release in releases {
-        let executable_path = ensure_installed(&layout, release_client.http_client(), os, &release)?;
+        let executable_path = ensure_installed(&layout, release_client.http_client(), os, &release, &checksum_source)?;
         let patch_alias = create_or_update_patch_alias(&layout, os, &release.version, &executable_path)?;
         let version_path = executable_path.parent().unwrap_or_else(|| Path::new(""));
 
@@ -1780,7 +1874,12 @@ fn run_install(selector_input: &str, arch: Option<HostArch>, include_prerelease:
     Ok(())
 }
 
-fn run_update(line_input: &str, arch: Option<HostArch>, include_prerelease: bool) -> Result<()> {
+fn run_update(
+    line_input: &str,
+    arch: Option<HostArch>,
+    include_prerelease: bool,
+    checksum_source: ChecksumSource,
+) -> Result<()> {
     let line = parse_major_minor_selector(line_input)?;
     let os = HostOs::detect()?;
     let arch = arch.unwrap_or_else(HostArch::detect);
@@ -1791,7 +1890,7 @@ fn run_update(line_input: &str, arch: Option<HostArch>, include_prerelease: bool
     let token = env::var("GITHUB_TOKEN").ok();
     let release_client = ReleaseClient::new(token)?;
     let release = release_client.resolve_latest_in_line(line, os, arch, include_prerelease)?;
-    let executable_path = ensure_installed(&layout, release_client.http_client(), os, &release)?;
+    let executable_path = ensure_installed(&layout, release_client.http_client(), os, &release, &checksum_source)?;
     let patch_alias_path = create_or_update_patch_alias(&layout, os, &release.version, &executable_path)?;
     let version_path = executable_path.parent().unwrap_or_else(|| Path::new(""));
 
@@ -2168,7 +2267,12 @@ fn run() -> Result<()> {
                 run_package_install(&args[1], options)
             } else {
                 let options = parse_release_selection_options(&args[2..])?;
-                run_install(&args[1], options.arch, options.include_prerelease)
+                run_install(
+                    &args[1],
+                    options.arch,
+                    options.include_prerelease,
+                    options.checksum_source,
+                )
             }
         }
         "update" => {
@@ -2183,7 +2287,12 @@ fn run() -> Result<()> {
                 run_package_install(&args[1], options)
             } else {
                 let options = parse_release_selection_options(&args[2..])?;
-                run_update(&args[1], options.arch, options.include_prerelease)
+                run_update(
+                    &args[1],
+                    options.arch,
+                    options.include_prerelease,
+                    options.checksum_source,
+                )
             }
         }
         "uninstall" => {
@@ -2512,6 +2621,7 @@ mod tests {
         let options = parse_release_selection_options(&args).unwrap();
         assert!(options.include_prerelease);
         assert!(options.arch.is_none());
+        assert_eq!(options.checksum_source, ChecksumSource::ReleaseAsset);
     }
 
     #[test]
@@ -2524,6 +2634,75 @@ mod tests {
         let options = parse_release_selection_options(&args).unwrap();
         assert!(options.include_prerelease);
         assert!(matches!(options.arch, Some(HostArch::X64)));
+    }
+
+    #[test]
+    fn parse_release_selection_options_accepts_skip_hash_verification() {
+        let args = vec!["--skip-hash-verification".to_string()];
+        let options = parse_release_selection_options(&args).unwrap();
+
+        assert_eq!(options.checksum_source, ChecksumSource::Skip);
+    }
+
+    #[test]
+    fn parse_release_selection_options_accepts_checksum_file_url() {
+        let args = vec![
+            "--hash-file".to_string(),
+            "https://example.invalid/hashes.sha256".to_string(),
+        ];
+        let options = parse_release_selection_options(&args).unwrap();
+
+        assert_eq!(
+            options.checksum_source,
+            ChecksumSource::Url("https://example.invalid/hashes.sha256".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_release_selection_options_accepts_checksum_file_path() {
+        let args = vec!["--hash-file".to_string(), "C:\\temp\\hashes.sha256".to_string()];
+        let options = parse_release_selection_options(&args).unwrap();
+
+        assert_eq!(
+            options.checksum_source,
+            ChecksumSource::File(PathBuf::from("C:\\temp\\hashes.sha256"))
+        );
+    }
+
+    #[test]
+    fn parse_release_selection_options_rejects_multiple_checksum_sources() {
+        let args = vec![
+            "--skip-hash-verification".to_string(),
+            "--hash-file".to_string(),
+            "hashes.sha256".to_string(),
+        ];
+
+        assert!(parse_release_selection_options(&args).is_err());
+    }
+
+    #[test]
+    fn parse_package_install_options_accepts_checksum_file_url() {
+        let args = vec![
+            "--scope".to_string(),
+            "user".to_string(),
+            "--hash-file".to_string(),
+            "https://example.invalid/hashes.sha256".to_string(),
+        ];
+        let options = parse_package_install_options(&args).unwrap();
+
+        assert_eq!(
+            options.checksum_source,
+            ChecksumSource::Url("https://example.invalid/hashes.sha256".to_string())
+        );
+        assert_eq!(options.package.scope, PackageScope::CurrentUser);
+    }
+
+    #[test]
+    fn parse_package_install_options_accepts_skip_hash_verification() {
+        let args = vec!["--skip-hash-verification".to_string()];
+        let options = parse_package_install_options(&args).unwrap();
+
+        assert_eq!(options.checksum_source, ChecksumSource::Skip);
     }
 
     #[test]
