@@ -95,6 +95,7 @@ Rerun the bootstrap script against a newer warmed bundle to update `multi-pwsh` 
 - [Native host mode and virtual environments](docs/host-and-venv.md)
 - [In-process PowerShell FFI experiment](docs/in-process-ffi.md)
 - [MCP host mode](docs/mcp.md)
+- [Hyper-V MCP server example](examples/hyperv-mcp/README.md)
 - [Feature matrix and roadmap](docs/feature-matrix.md)
 - [Testing guide](docs/testing.md)
 - [Release process](RELEASE.md)

@@ -50,6 +50,10 @@ multi-pwsh host 7.4 -mcp -McpCommands Get-Module -venv graph
 
 The selected venv changes module discovery for both command metadata discovery and later tool calls. Path-based venv selection through `PSMODULE_VENV_PATH` is also honored by the native host path.
 
+## Examples
+
+- [Hyper-V management and guest execution](../examples/hyperv-mcp/README.md)
+
 ## Limits and safety
 
 - MCP mode exposes only commands named in `-McpCommands`; it is not an interactive shell.
