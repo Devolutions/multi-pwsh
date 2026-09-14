@@ -109,7 +109,7 @@ function New-HyperVCommandScript {
     }
 
     @"
-Push-Location $(ConvertTo-HyperVPowerShellLiteral -Value $Cwd)
+Push-Location $(ConvertTo-HyperVPowerShellLiteral -Value $Cwd) -ErrorAction Stop
 try {
     $invocation
 }
@@ -144,37 +144,38 @@ function Invoke-HyperVGuestScriptInternal {
             param($EncodedScript, $RunElevated)
 
             $text = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($EncodedScript))
-            if ($RunElevated) {
-                $scriptPath = [System.IO.Path]::GetTempFileName() + '.ps1'
-                $outputPath = [System.IO.Path]::GetTempFileName()
-                try {
-                    [System.IO.File]::WriteAllText($scriptPath, $text, [Text.Encoding]::Unicode)
-                    $process = Start-Process powershell.exe `
-                        -ArgumentList "-NonInteractive -NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`" *>`"$outputPath`"" `
-                        -Verb RunAs -Wait -PassThru -ErrorAction Stop
-                    [pscustomobject]@{
-                        exit_code = $process.ExitCode
-                        stdout = if (Test-Path -LiteralPath $outputPath) {
-                            [System.IO.File]::ReadAllText($outputPath)
-                        }
-                        else {
-                            ''
-                        }
-                        stderr = ''
-                    }
+            $scriptName = [System.IO.Path]::ChangeExtension(
+                [System.IO.Path]::GetRandomFileName(),
+                '.ps1'
+            )
+            $scriptPath = Join-Path ([System.IO.Path]::GetTempPath()) $scriptName
+            $outputPath = [System.IO.Path]::GetTempFileName()
+            try {
+                [System.IO.File]::WriteAllText($scriptPath, $text, [Text.Encoding]::Unicode)
+                $startProcessParameters = @{
+                    FilePath = 'powershell.exe'
+                    ArgumentList = "-NonInteractive -NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`" *>`"$outputPath`""
+                    Wait = $true
+                    PassThru = $true
+                    ErrorAction = 'Stop'
                 }
-                finally {
-                    Remove-Item -LiteralPath $scriptPath, $outputPath -Force -ErrorAction SilentlyContinue
+                if ($RunElevated) {
+                    $startProcessParameters.Verb = 'RunAs'
                 }
-            }
-            else {
-                $global:LASTEXITCODE = $null
-                $output = (& ([scriptblock]::Create($text)) 2>&1) | Out-String
+                $process = Start-Process @startProcessParameters
                 [pscustomobject]@{
-                    exit_code = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
-                    stdout = $output
+                    exit_code = $process.ExitCode
+                    stdout = if (Test-Path -LiteralPath $outputPath) {
+                        [System.IO.File]::ReadAllText($outputPath)
+                    }
+                    else {
+                        ''
+                    }
                     stderr = ''
                 }
+            }
+            finally {
+                Remove-Item -LiteralPath $scriptPath, $outputPath -Force -ErrorAction SilentlyContinue
             }
         } -ArgumentList $encodedScript, $Elevated
 
@@ -203,10 +204,43 @@ function Invoke-HyperVGuestReboot {
     try {
         Invoke-Command -Session $session -ErrorAction Stop -ScriptBlock {
             shutdown.exe /r /t 3
+            if ($LASTEXITCODE -ne 0) {
+                throw "Guest reboot failed with exit code $LASTEXITCODE."
+            }
         } | Out-Null
     }
     finally {
         Remove-PSSession -Session $session -ErrorAction SilentlyContinue
+    }
+}
+
+function New-HyperVGuestSessionWithRetry {
+    param(
+        [Parameter(Mandatory)]
+        [string] $VMName,
+
+        [Parameter(Mandatory)]
+        [System.Management.Automation.PSCredential] $Credential,
+
+        [int] $OperationTimeoutMs = 60000,
+
+        [int] $RetryTimeoutSeconds = 60
+    )
+
+    $deadline = [DateTime]::UtcNow.AddSeconds($RetryTimeoutSeconds)
+    while ($true) {
+        try {
+            return New-HyperVGuestSession `
+                -VMName $VMName `
+                -Credential $Credential `
+                -OperationTimeoutMs $OperationTimeoutMs
+        }
+        catch {
+            if ([DateTime]::UtcNow -ge $deadline) {
+                throw
+            }
+            Start-Sleep -Seconds 2
+        }
     }
 }
 
@@ -557,9 +591,26 @@ function hyperv_configure_kdcom {
     }
 
     $credential = New-HyperVGuestCredential -Username $username -Password $password
-    Set-VMComPort -VMName $vm_name -Number $com_port -Path $pipe_name -ErrorAction Stop
-    $session = New-HyperVGuestSession -VMName $vm_name -Credential $credential -OperationTimeoutMs 60000
+    $originalState = [string] (Get-VM -Name $vm_name -ErrorAction Stop).State
+    switch ($originalState) {
+        'Running' {
+            Stop-VM -Name $vm_name -Save -ErrorAction Stop
+        }
+        'Off' {}
+        'Saved' {}
+        default {
+            throw "VM '$vm_name' must be Running, Off, or Saved to configure KDCOM; current state is '$originalState'."
+        }
+    }
+
+    $session = $null
     try {
+        Set-VMComPort -VMName $vm_name -Number $com_port -Path $pipe_name -ErrorAction Stop
+        Start-VM -Name $vm_name -ErrorAction Stop | Out-Null
+        $session = New-HyperVGuestSessionWithRetry `
+            -VMName $vm_name `
+            -Credential $credential `
+            -OperationTimeoutMs 60000
         $result = Invoke-Command -Session $session -ErrorAction Stop -ScriptBlock {
             param($ComPort)
             $settings = & bcdedit.exe /dbgsettings serial "debugport:$ComPort" baudrate:115200 2>&1
@@ -570,13 +621,24 @@ function hyperv_configure_kdcom {
                 Current = (& bcdedit.exe /dbgsettings 2>&1 | Out-String)
             }
         } -ArgumentList $com_port
+        if ($reboot) {
+            Invoke-HyperVGuestReboot -VMName $vm_name -Credential $credential
+        }
     }
     finally {
-        Remove-PSSession -Session $session -ErrorAction SilentlyContinue
-    }
-
-    if ($reboot) {
-        Invoke-HyperVGuestReboot -VMName $vm_name -Credential $credential
+        if ($null -ne $session) {
+            Remove-PSSession -Session $session -ErrorAction SilentlyContinue
+        }
+        if (-not $reboot) {
+            switch ($originalState) {
+                'Off' {
+                    Stop-VM -Name $vm_name -TurnOff -Force -ErrorAction Stop
+                }
+                'Saved' {
+                    Stop-VM -Name $vm_name -Save -ErrorAction Stop
+                }
+            }
+        }
     }
     ConvertTo-HyperVMcpJson -InputObject ([ordered]@{
         status = 'configured'
@@ -750,7 +812,7 @@ function hyperv_guest_get {
         $credential = New-HyperVGuestCredential -Username $username -Password $password
         $session = New-HyperVGuestSession -VMName $vm_name -Credential $credential -OperationTimeoutMs 300000
         try {
-            Copy-Item -FromSession $session -Path $remote_path -Destination $local_path -Force -ErrorAction Stop
+            Copy-Item -FromSession $session -LiteralPath $remote_path -Destination $local_path -Force -ErrorAction Stop
             $bytesCopied = (Get-Item -LiteralPath $local_path -ErrorAction Stop).Length
         }
         finally {
@@ -794,10 +856,37 @@ function hyperv_guest_read_file {
         try {
             $result = Invoke-Command -Session $session -ErrorAction Stop -ScriptBlock {
                 param($Path, $MaximumBytes)
-                $bytes = [System.IO.File]::ReadAllBytes($Path)
-                $truncated = $bytes.Length -gt $MaximumBytes
+                $readLimit = [long] $MaximumBytes + 1
+                $inputStream = [System.IO.File]::OpenRead($Path)
+                $outputStream = [System.IO.MemoryStream]::new()
+                try {
+                    $buffer = [byte[]]::new([Math]::Min(81920, $MaximumBytes + 1))
+                    while ($outputStream.Length -lt $readLimit) {
+                        $remaining = $readLimit - $outputStream.Length
+                        $bytesRead = $inputStream.Read(
+                            $buffer,
+                            0,
+                            [int] [Math]::Min($buffer.Length, $remaining)
+                        )
+                        if ($bytesRead -eq 0) {
+                            break
+                        }
+                        $outputStream.Write($buffer, 0, $bytesRead)
+                    }
+                    $readBytes = $outputStream.ToArray()
+                }
+                finally {
+                    $inputStream.Dispose()
+                    $outputStream.Dispose()
+                }
+
+                $truncated = $readBytes.Length -gt $MaximumBytes
                 if ($truncated) {
-                    $bytes = $bytes[0..($MaximumBytes - 1)]
+                    $bytes = [byte[]]::new($MaximumBytes)
+                    [Array]::Copy($readBytes, $bytes, $MaximumBytes)
+                }
+                else {
+                    $bytes = $readBytes
                 }
                 [ordered]@{
                     content_b64 = [Convert]::ToBase64String($bytes)
