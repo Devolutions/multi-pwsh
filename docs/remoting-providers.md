@@ -1,10 +1,13 @@
-# MultiPwsh-managed remoting providers
+# MultiPwsh-managed WSMan diagnostics
 
-The NativeAOT facade can describe optional remoting providers implemented by
-MultiPwsh's managed payload bindings. Provider availability is separate from
-the FFI feature mask: the feature mask reports that the bindings can describe
-providers, while runtime diagnostics report whether the selected provider can
-actually create a remote runspace pool.
+The NativeAOT facade describes the availability of the single MultiPwsh-managed
+WSMan provider, `devolutions.wsman`, in the managed payload bindings. Provider
+availability is separate from the FFI feature mask: the feature mask reports
+that the bindings can expose diagnostics, not that a transport is implemented.
+The current implementation always reports the provider as unavailable with
+zero capabilities. This diagnostic surface provides no MultiPwsh-managed WSMan
+connection/pool options, remote-pool preflight, or host-stream connector API;
+those contracts are deferred until an operational transport is implemented.
 
 Vanilla PowerShell remains a supported payload. It does not contain the
 Devolutions client-transport provider registry, so
@@ -12,9 +15,10 @@ Devolutions client-transport provider registry, so
 unavailable with `PayloadHooksMissing`. Local invocation and PowerShell's
 built-in remoting remain available.
 
-Selecting the Devolutions managed WSMan provider never falls back to built-in
-WSMan. Gateway routing, SSPI selection, KDC proxying, and certificate behavior
-would otherwise change silently.
+A future API selecting the Devolutions managed WSMan provider must reject
+unavailability rather than fall back to built-in WSMan. Gateway routing, SSPI
+selection, KDC proxying, and certificate behavior would otherwise change
+silently.
 
 ## PowerShell integration
 
@@ -58,30 +62,22 @@ already-public registry and protected transport surface.
 ## Diagnostics
 
 `PowerShellRuntime.Diagnostics.ManagedWsManProvider` returns copied, non-secret
-metadata and reports one of these unavailable reasons:
+metadata. The current implementation reports:
 
-- `PayloadHooksMissing`
-- `TransportImplementationMissing`
-- `RegistrationFailed`
-- `UnsupportedPlatform`
+- `PayloadHooksMissing` when the loaded SMA lacks the expected public hooks.
+- `TransportImplementationMissing` when the hooks are present but MultiPwsh
+  lacks an operational transport.
 
-Unavailable providers report no version or capabilities. An available provider
-must report `CustomClientTransport` and `RemoteRunspacePool`; optional
-capabilities include `HostStreamRelay`, authentication mechanisms, and KDC
-proxy support.
+The diagnostic contract also reserves `RegistrationFailed` and
+`UnsupportedPlatform` for a future implementation. An unavailable provider
+reports zero capabilities. A future available provider must report
+`CustomClientTransport` and `RemoteRunspacePool`; optional capabilities include
+`HostStreamRelay`, authentication mechanisms, and KDC proxy support. These
+reserved values do not imply current transport support.
 
-`PowerShellRuntime.ValidateRemoteSessionPool` performs no credential transfer,
-connector invocation, or network access. It rejects an unavailable provider or
-missing transport, pool, authentication, KDC-proxy, or stream-relay capability
-before a remote pool can be created.
-
-`DevolutionsManagedWsManConnectionOptions` uses one absolute HTTP or HTTPS
-`EndpointUri`; its path becomes the WSMan application name. The copied options
-also include the shell URI, `Negotiate`/`Kerberos`/`Ntlm` authentication,
-runspace bounds, open/operation/cancel timeouts, maximum envelope size,
-connection bound, certificate policy, SSPI provider, domain, KDC proxy name,
-and optional SPN. The host-owned connector remains separate from these copied
-options, and its returned `Stream` never crosses the native boundary.
+Reading these diagnostics performs no credential transfer, provider
+registration, or network access. No managed WSMan invocation or gateway relay
+is implemented by this branch.
 
 Provider diagnostics describe capability only. They do not attest payload
 integrity or provenance, and applications remain responsible for selecting and

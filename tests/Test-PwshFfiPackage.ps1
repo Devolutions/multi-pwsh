@@ -669,14 +669,6 @@ void VerifyRuntimeDiagnostics(PowerShellRuntime runtime, string payloadDirectory
             .GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .All(property => property.SetMethod is null),
         "PowerShell did not report the expected managed WSMan provider availability state.");
-    PowerShellRemoteSessionPoolPreflightReport remotePreflight = runtime.ValidateRemoteSessionPool(
-        new PowerShellRemoteSessionPoolOptions(
-            new DevolutionsManagedWsManConnectionOptions(new Uri("https://example.test/wsman"))));
-    Require(
-        !remotePreflight.IsValid &&
-        remotePreflight.Failure == PowerShellRemoteSessionPoolPreflightFailure.ProviderUnavailable &&
-        ReferenceEquals(remotePreflight.Provider, provider),
-        "Remote pool preflight did not reject the unavailable payload provider before execution.");
     // The report exposes the runtime's canonicalized payload directory, which on Windows
     // is extended-length prefixed and therefore is not string-equal to the activation
     // argument. It must still resolve to the same directory.

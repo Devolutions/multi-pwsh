@@ -80,7 +80,6 @@ NativeImportInspection[] nativeImports = nativeMethodsType.GetMethods(StaticNonP
 ValidateAbiCompatibility(facadeAssembly, StaticNonPublic);
 ValidatePowerShellValueTimeSpanPayload();
 ValidateSnapshotFormatCompatibility();
-ValidateRemotePoolArgumentNames();
 
 var inspection = new FacadeInspection(
     facadeAssembly.GetReferencedAssemblies().Select(reference => reference.Name!).OrderBy(name => name, StringComparer.Ordinal).ToArray(),
@@ -359,38 +358,6 @@ static void RequireInvalidSnapshot(JsonObject document, string description)
         return;
     }
     throw new InvalidOperationException($"Snapshot deserialization accepted {description}.");
-}
-
-static void ValidateRemotePoolArgumentNames()
-{
-    var connection = new DevolutionsManagedWsManConnectionOptions(new Uri("https://example.test/wsman"));
-    foreach ((uint minimum, uint maximum, string parameter) in new (uint, uint, string)[]
-    {
-        (0, 1, "minimumRunspaces"),
-        (65, 65, "minimumRunspaces"),
-        (1, 0, "maximumRunspaces"),
-        (2, 1, "maximumRunspaces"),
-        (1, 65, "maximumRunspaces"),
-    })
-    {
-        try
-        {
-            _ = new PowerShellRemoteSessionPoolOptions(connection, minimum, maximum);
-        }
-        catch (ArgumentOutOfRangeException exception) when (exception.ParamName == parameter)
-        {
-            continue;
-        }
-        throw new InvalidOperationException($"Remote pool bounds ({minimum}, {maximum}) did not identify {parameter}.");
-    }
-    foreach (uint bound in new uint[] { 1, 64 })
-    {
-        var options = new PowerShellRemoteSessionPoolOptions(connection, bound, bound);
-        if (options.MinimumRunspaces != bound || options.MaximumRunspaces != bound)
-        {
-            throw new InvalidOperationException($"Remote pool bounds did not preserve the supported boundary {bound}.");
-        }
-    }
 }
 
 internal sealed record FacadeInspection(
