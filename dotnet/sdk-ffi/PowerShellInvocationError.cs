@@ -7,6 +7,7 @@ public sealed class PowerShellInvocationError
         string fullyQualifiedErrorId,
         string category,
         string exceptionType,
+        int exceptionHResult,
         string invocationName,
         string positionMessage,
         string scriptStackTrace,
@@ -30,6 +31,7 @@ public sealed class PowerShellInvocationError
         FullyQualifiedErrorId = fullyQualifiedErrorId;
         Category = category;
         ExceptionType = exceptionType;
+        ExceptionHResult = exceptionHResult;
         InvocationName = invocationName;
         PositionMessage = positionMessage;
         ScriptStackTrace = scriptStackTrace;
@@ -57,6 +59,8 @@ public sealed class PowerShellInvocationError
     public string Category { get; }
 
     public string ExceptionType { get; }
+
+    public int ExceptionHResult { get; }
 
     public string InvocationName { get; }
 

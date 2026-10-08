@@ -12,6 +12,11 @@ param(
 
     [switch]$AllowPreviewVersionMismatch,
 
+    [switch]$AllowPowerShellVersionMismatch,
+
+    [ValidateSet('PayloadHooksMissing', 'TransportImplementationMissing')]
+    [string]$ExpectedRemoteProviderUnavailableReason = 'PayloadHooksMissing',
+
     [switch]$KeepWorkspace
 )
 
@@ -119,8 +124,14 @@ function Resolve-PowerShellPayloadDirectory {
     }
 
     $version = & (Join-Path $resolved 'pwsh.exe') -NoLogo -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'
-    if ($LASTEXITCODE -ne 0 -or $version -notmatch '^7\.4\.') {
+    if ($LASTEXITCODE -ne 0) {
+        throw "The FFI package smoke could not start the PowerShell payload at '$resolved'."
+    }
+    if ($version -notmatch '^7\.4\.' -and -not $AllowPowerShellVersionMismatch) {
         throw "The FFI package smoke requires a PowerShell 7.4 payload, but '$resolved' reported '$version'."
+    }
+    if ($version -notmatch '^7\.4\.') {
+        Write-Warning "Testing an explicit non-7.4 PowerShell payload: $version."
     }
 
     $script:QualifiedPowerShellVersion = $version.Trim()
@@ -370,6 +381,7 @@ void VerifyCopiedValueReaders()
     Uri expectedUri = new("https://example.test/sdk");
     DateTime expectedDateTime = new(2026, 7, 18, 10, 30, 0, DateTimeKind.Utc);
     DateTimeOffset expectedDateTimeOffset = new(2026, 7, 18, 10, 30, 0, TimeSpan.FromHours(-4));
+    TimeSpan expectedTimeSpan = TimeSpan.FromTicks(-123456789);
     PowerShellValue bytes = PowerShellValue.Bytes(new byte[] { 1, 2, 3 });
     PowerShellValue value = PowerShellValue.PropertyBag(new[]
     {
@@ -383,6 +395,7 @@ void VerifyCopiedValueReaders()
         new KeyValuePair<string, PowerShellValue>("Bytes", bytes),
         new KeyValuePair<string, PowerShellValue>("DateTime", PowerShellValue.DateTime(expectedDateTime)),
         new KeyValuePair<string, PowerShellValue>("DateTimeOffset", PowerShellValue.DateTimeOffset(expectedDateTimeOffset)),
+        new KeyValuePair<string, PowerShellValue>("TimeSpan", PowerShellValue.From(expectedTimeSpan)),
         new KeyValuePair<string, PowerShellValue>("Guid", PowerShellValue.Guid(expectedGuid)),
         new KeyValuePair<string, PowerShellValue>("Uri", PowerShellValue.Uri(expectedUri)),
         new KeyValuePair<string, PowerShellValue>(
@@ -396,7 +409,7 @@ void VerifyCopiedValueReaders()
 
     Require(
         PowerShellValue.Null.IsNull &&
-        value.GetPropertyBag().Count == 13 &&
+        value.GetPropertyBag().Count == 14 &&
         value.TryGetProperty("text", out PowerShellValue? text) &&
         text!.TryGetString(out string? textValue) &&
         textValue == "copied-reader" &&
@@ -427,6 +440,10 @@ void VerifyCopiedValueReaders()
         value.TryGetProperty("DateTimeOffset", out PowerShellValue? dateTimeOffsetValue) &&
         dateTimeOffsetValue!.TryGetDateTimeOffset(out DateTimeOffset dateTimeOffsetResult) &&
         dateTimeOffsetResult == expectedDateTimeOffset &&
+        value.TryGetProperty("TimeSpan", out PowerShellValue? timeSpanValue) &&
+        timeSpanValue!.Kind == PowerShellValueKind.TimeSpan &&
+        timeSpanValue.TryGetTimeSpan(out TimeSpan timeSpanResult) &&
+        timeSpanResult.Ticks == expectedTimeSpan.Ticks &&
         value.TryGetProperty("Guid", out PowerShellValue? guidValue) &&
         guidValue!.TryGetGuid(out Guid guidResult) &&
         guidResult == expectedGuid &&
@@ -451,6 +468,43 @@ void VerifyCopiedValueReaders()
         rejectedArrayRead = true;
     }
     Require(rejectedArrayRead, "Property bags must not be read as arrays.");
+}
+
+void VerifyTimeSpanNativeManagedCopies()
+{
+    TimeSpan expected = TimeSpan.FromTicks(-123456789);
+    using PowerShell command = PowerShell.Create();
+    PowerShellInvocationResult result = command
+        .AddScript("param([TimeSpan]`$Value) if (`$Value.Ticks -ne -123456789) { throw 'TimeSpan parameter ticks changed' }; `$Value")
+        .AddParameter("Value", PowerShellValue.TimeSpan(expected))
+        .InvokeWithDiagnostics();
+    PowerShellObjectSnapshot output = result.Output.Records.Single();
+    PowerShellValue? scalar = output.ScalarValue;
+    Require(
+        result.Errors.Records.Count == 0 &&
+        scalar?.Kind == PowerShellValueKind.TimeSpan &&
+        scalar.TryGetTimeSpan(out TimeSpan copied) &&
+        copied.Ticks == expected.Ticks,
+        "Managed/native TimeSpan copies did not preserve the tagged kind and exact ticks.");
+}
+
+void VerifyCopiedExceptionHResultAndSnapshotSerialization(
+    PowerShellInvocationResult copiedResult,
+    byte[] serialized,
+    PowerShellInvocationResult restoredResult)
+{
+    const int ExpectedHResult = -2128394905;
+    Require(
+        copiedResult.Errors.Records.Single().ExceptionHResult == ExpectedHResult,
+        "The copied PowerShell invocation error did not preserve Exception.HResult.");
+    Require(
+        Encoding.UTF8.GetString(serialized).Contains(
+            "\"exceptionHResult\":-2128394905",
+            StringComparison.Ordinal),
+        "Snapshot JSON did not expose the copied exception HResult.");
+    Require(
+        restoredResult.Errors.Records.Single().ExceptionHResult == ExpectedHResult,
+        "Snapshot deserialization did not restore the copied exception HResult.");
 }
 
 void VerifyScriptParameterMetadata(PowerShellRuntime runtime)
@@ -583,6 +637,7 @@ void VerifyRuntimeDiagnostics(PowerShellRuntime runtime, string payloadDirectory
         report.PayloadTableSize >= (nuint)report.PayloadTableSlotCount * (nuint)IntPtr.Size &&
         report.FeatureFlags == runtime.FeatureFlags &&
         (report.FeatureFlags & (1UL << 24)) != 0 &&
+        (report.FeatureFlags & (1UL << 32)) != 0 &&
         report.RegisteredLiveObjectContractPacks.Count == 0 &&
         (report.PowerShellFileVersion is null ||
             (!string.IsNullOrWhiteSpace(report.PowerShellFileVersion) &&
@@ -594,6 +649,24 @@ void VerifyRuntimeDiagnostics(PowerShellRuntime runtime, string payloadDirectory
             .GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .All(property => property.SetMethod is null),
         "Runtime diagnostics did not expose the documented immutable, descriptive payload facts.");
+    PowerShellRemoteProviderDiagnostic provider = report.ManagedWsManProvider;
+    Require(
+        provider.ProviderId == PowerShellRemoteProviderDiagnostic.DevolutionsManagedWsManProviderId &&
+        provider.Status == PowerShellRemoteProviderStatus.Unavailable &&
+        provider.UnavailableReason == PowerShellRemoteProviderUnavailableReason.$ExpectedRemoteProviderUnavailableReason &&
+        provider.Capabilities == PowerShellRemoteProviderCapability.None &&
+        typeof(PowerShellRemoteProviderDiagnostic)
+            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .All(property => property.SetMethod is null),
+        "PowerShell did not report the expected managed WSMan provider availability state.");
+    PowerShellRemoteSessionPoolPreflightReport remotePreflight = runtime.ValidateRemoteSessionPool(
+        new PowerShellRemoteSessionPoolOptions(
+            new DevolutionsManagedWsManConnectionOptions(new Uri("https://example.test/wsman"))));
+    Require(
+        !remotePreflight.IsValid &&
+        remotePreflight.Failure == PowerShellRemoteSessionPoolPreflightFailure.ProviderUnavailable &&
+        ReferenceEquals(remotePreflight.Provider, provider),
+        "Remote pool preflight did not reject the unavailable payload provider before execution.");
     // The report exposes the runtime's canonicalized payload directory, which on Windows
     // is extended-length prefixed and therefore is not string-equal to the activation
     // argument. It must still resolve to the same directory.
@@ -1755,6 +1828,7 @@ if (args.Length != 1)
 PowerShellRuntime runtime = PowerShellRuntime.Activate(args[0]);
 VerifyRuntimeDiagnostics(runtime, args[0]);
 VerifyCopiedValueReaders();
+VerifyTimeSpanNativeManagedCopies();
 VerifyScriptParameterMetadata(runtime);
 VerifyProgressUpdate();
 VerifyCompleteResultProjection(runtime);
@@ -1990,7 +2064,7 @@ if (result.Errors.Records.Count != 1 || !result.Errors.Records[0].Message.Contai
 using (PowerShell projectionBuilder = PowerShell.Create())
 {
     PowerShellInvocationResult projectionResult = projectionBuilder
-        .AddScript("[pscustomobject]@{ Name = 'package-projection'; Count = 2; Nested = @{ Value = 1 }; Items = 1, 2 }; Write-Error -Message 'package-projection-error' -Category InvalidOperation -TargetObject 42")
+        .AddScript("[pscustomobject]@{ Name = 'package-projection'; Count = 2; Nested = @{ Value = 1 }; Items = 1, 2 }; `$exception = [System.Runtime.InteropServices.COMException]::new('package-projection-error', -2128394905); Write-Error -Exception `$exception -Category InvalidOperation -TargetObject 42")
         .InvokeWithDiagnostics();
     PowerShellObjectSnapshot projection = projectionResult.Output.Records[0];
     PowerShellInvocationError projectionError = projectionResult.Errors.Records[0];
@@ -2022,6 +2096,7 @@ using (PowerShell projectionBuilder = PowerShell.Create())
         !Encoding.UTF8.GetString(stored).Contains(secretMarker, StringComparison.Ordinal),
         "Snapshot serialization leaked the explicit secret fixture.");
     PowerShellInvocationResult restored = PowerShellSnapshotSerializer.Deserialize(stored);
+    VerifyCopiedExceptionHResultAndSnapshotSerialization(projectionResult, stored, restored);
     PowerShellValue? restoredBag = restored.Output.Records[0].PropertyBag;
     Require(
         restoredBag?.Kind == PowerShellValueKind.PropertyBag &&

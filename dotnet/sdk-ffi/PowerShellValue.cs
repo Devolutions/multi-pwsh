@@ -88,6 +88,11 @@ public sealed class PowerShellValue
         return new PowerShellValue(PowerShellValueKind.DateTimeOffset, payload);
     }
 
+    public static PowerShellValue TimeSpan(TimeSpan value)
+    {
+        return new PowerShellValue(PowerShellValueKind.TimeSpan, Int64Payload(value.Ticks));
+    }
+
     public static PowerShellValue Guid(Guid value)
     {
         return new PowerShellValue(PowerShellValueKind.Guid, EncodeUtf8(value.ToString("D")));
@@ -287,6 +292,18 @@ public sealed class PowerShellValue
         return true;
     }
 
+    public bool TryGetTimeSpan(out TimeSpan value)
+    {
+        if (Kind != PowerShellValueKind.TimeSpan)
+        {
+            value = default;
+            return false;
+        }
+
+        value = System.TimeSpan.FromTicks(ReadInt64(payload, 0));
+        return true;
+    }
+
     public bool TryGetGuid(out Guid value)
     {
         if (Kind != PowerShellValueKind.Guid)
@@ -406,6 +423,7 @@ public sealed class PowerShellValue
             byte[] bytes => Bytes(bytes),
             DateTime dateTime => DateTime(dateTime),
             DateTimeOffset dateTimeOffset => DateTimeOffset(dateTimeOffset),
+            TimeSpan timeSpan => TimeSpan(timeSpan),
             Guid guid => Guid(guid),
             Uri uri => Uri(uri),
             Delegate callback => throw Unsupported(callback.GetType(), "Delegates cannot cross the PowerShell FFI boundary."),
@@ -417,7 +435,8 @@ public sealed class PowerShellValue
 
     internal byte[] Payload => payload;
 
-    internal bool IsSnapshotScalar => Kind <= PowerShellValueKind.Uri;
+    internal bool IsSnapshotScalar =>
+        Kind <= PowerShellValueKind.Uri || Kind == PowerShellValueKind.TimeSpan;
 
     internal bool IsSnapshotPropertyBag
     {
@@ -447,7 +466,8 @@ public sealed class PowerShellValue
 
                     PowerShellValueKind nestedKind = (PowerShellValueKind)ReadUInt32(payload, ref offset);
                     ReadOnlySpan<byte> nestedPayload = ReadBytes(payload, ref offset, ReadUInt32(payload, ref offset));
-                    if (nestedKind > PowerShellValueKind.Uri)
+                    if (nestedKind > PowerShellValueKind.Uri &&
+                        nestedKind != PowerShellValueKind.TimeSpan)
                     {
                         return false;
                     }
@@ -654,7 +674,7 @@ public sealed class PowerShellValue
     {
         long ticks = ReadInt64(value, 0);
         short offsetMinutes = unchecked((short)(value[sizeof(long)] | (value[sizeof(long) + 1] << 8)));
-        return new System.DateTimeOffset(ticks, TimeSpan.FromMinutes(offsetMinutes));
+        return new System.DateTimeOffset(ticks, System.TimeSpan.FromMinutes(offsetMinutes));
     }
 
     private static long ReadInt64(ReadOnlySpan<byte> value, int offset)
@@ -709,6 +729,9 @@ public sealed class PowerShellValue
                     {
                         throw InvalidNativeValue();
                     }
+                    return;
+                case PowerShellValueKind.TimeSpan:
+                    if (value.Length != sizeof(long)) throw InvalidNativeValue();
                     return;
                 case PowerShellValueKind.DateTimeOffset:
                     if (value.Length != sizeof(long) + sizeof(short)) throw InvalidNativeValue();

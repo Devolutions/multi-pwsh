@@ -155,6 +155,58 @@ public sealed class PowerShellRuntime
         return PowerShellSessionPool.Create(options);
     }
 
+    public PowerShellRemoteSessionPoolPreflightReport ValidateRemoteSessionPool(
+        PowerShellRemoteSessionPoolOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        PowerShellRemoteProviderDiagnostic provider = Diagnostics.ManagedWsManProvider;
+        if (!provider.IsAvailable)
+        {
+            return new PowerShellRemoteSessionPoolPreflightReport(
+                provider,
+                PowerShellRemoteSessionPoolPreflightFailure.ProviderUnavailable,
+                $"The {provider.ProviderId} provider is unavailable: {provider.UnavailableReason}.");
+        }
+
+        PowerShellRemoteProviderCapability required =
+            PowerShellRemoteProviderCapability.CustomClientTransport |
+            PowerShellRemoteProviderCapability.RemoteRunspacePool;
+        required |= options.Connection.Authentication switch
+        {
+            PowerShellRemoteAuthentication.Negotiate =>
+                PowerShellRemoteProviderCapability.NegotiateAuthentication,
+            PowerShellRemoteAuthentication.Kerberos =>
+                PowerShellRemoteProviderCapability.KerberosAuthentication,
+            PowerShellRemoteAuthentication.Ntlm =>
+                PowerShellRemoteProviderCapability.NtlmAuthentication,
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(options),
+                "The remote authentication mode is invalid."),
+        };
+        if (options.Connection.Connector is not null)
+        {
+            required |= PowerShellRemoteProviderCapability.HostStreamRelay;
+        }
+        if (options.Connection.KdcProxyName is not null)
+        {
+            required |= PowerShellRemoteProviderCapability.KdcProxy;
+        }
+
+        PowerShellRemoteProviderCapability missing = required & ~provider.Capabilities;
+        if (missing != PowerShellRemoteProviderCapability.None)
+        {
+            return new PowerShellRemoteSessionPoolPreflightReport(
+                provider,
+                PowerShellRemoteSessionPoolPreflightFailure.MissingCapability,
+                $"The {provider.ProviderId} provider is missing required capabilities: {missing}.");
+        }
+
+        return new PowerShellRemoteSessionPoolPreflightReport(
+            provider,
+            PowerShellRemoteSessionPoolPreflightFailure.None,
+            "The remote runspace-pool configuration is supported by the selected payload.");
+    }
+
     /// <summary>
     /// Parses copied parameter metadata without executing the supplied script or
     /// exposing SMA parser/AST types.

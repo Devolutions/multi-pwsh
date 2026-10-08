@@ -75,6 +75,7 @@ namespace NativeHost
         private const ulong FfiFeatureObservedPresentation = 1UL << 29;
         private const ulong FfiFeatureSecretAdapters = 1UL << 30;
         private const ulong FfiFeatureCredentialResult = 1UL << 31;
+        private const ulong FfiFeatureRemoteProviderDiagnostics = 1UL << 32;
         private const int FfiMaxSecretLength = 4_096;
         private const int FfiMaxSecretUserNameLength = 256;
         private const int FfiMaxCredentialTextUtf8Bytes = 4 * 1024;
@@ -243,6 +244,7 @@ namespace NativeHost
             public IntPtr ObservedDiagnosticPage_CopyRecordValue;
             public IntPtr PowerShell_InvokeSecretResult;
             public IntPtr PowerShell_InvokeCredentialResult;
+            public IntPtr RuntimeDiagnostics_GetDevolutionsWsManProviderInfo;
         }
 
         private const int FfiPreflightMaximumTextLength = 128;
@@ -1175,7 +1177,8 @@ namespace NativeHost
                     FfiFeatureLiveStreamPolling | FfiFeatureTypedResultPaging | FfiFeatureObservedInvocation |
                     FfiFeatureSessionPreflight | FfiFeatureRuntimeDiagnostics | FfiFeatureDuplexBrokerChannel |
                     FfiFeatureGeneratedBridgeAttachment | FfiFeatureReliableBridgeEvents |
-                    FfiFeatureObservedPresentation | FfiFeatureSecretAdapters | FfiFeatureCredentialResult,
+                    FfiFeatureObservedPresentation | FfiFeatureSecretAdapters | FfiFeatureCredentialResult |
+                    FfiFeatureRemoteProviderDiagnostics,
                 PowerShell_Create = (IntPtr)(delegate* unmanaged<IntPtr*, FfiCallResult*, int>)&FfiPowerShell_Create,
                 PowerShell_Release = (IntPtr)(delegate* unmanaged<IntPtr, FfiCallResult*, int>)&FfiPowerShell_Release,
                 PowerShell_AddArgumentUtf8 = (IntPtr)(delegate* unmanaged<IntPtr, byte*, int, FfiCallResult*, int>)&FfiPowerShell_AddArgumentUtf8,
@@ -1264,6 +1267,7 @@ namespace NativeHost
                 ObservedDiagnosticPage_CopyRecordValue = (IntPtr)(delegate* unmanaged<IntPtr, int, uint*, byte*, int, int*, FfiCallResult*, int>)&FfiObservedDiagnosticPage_CopyRecordValue,
                 PowerShell_InvokeSecretResult = (IntPtr)(delegate* unmanaged<IntPtr, uint, byte*, int, int*, char*, int, int*, FfiCallResult*, int>)&FfiPowerShell_InvokeSecretResult,
                 PowerShell_InvokeCredentialResult = (IntPtr)(delegate* unmanaged<IntPtr, FfiCredentialResult*, FfiCallResult*, int>)&FfiPowerShell_InvokeCredentialResult,
+                RuntimeDiagnostics_GetDevolutionsWsManProviderInfo = (IntPtr)(delegate* unmanaged<uint*, uint*, ulong*, FfiCallResult*, int>)&FfiRuntimeDiagnostics_GetDevolutionsWsManProviderInfo,
             };
         }
 
@@ -4480,6 +4484,7 @@ namespace NativeHost
             PropertyBag = 14,
             SecretUtf16 = 15,
             Credential = 16,
+            TimeSpan = 17,
         }
 
         private sealed class FfiInputBuffer
@@ -6078,6 +6083,7 @@ namespace NativeHost
                 FfiValueKind.Bytes => payload.ToArray(),
                 FfiValueKind.DateTime => DecodeDateTime(payload),
                 FfiValueKind.DateTimeOffset => DecodeDateTimeOffset(payload),
+                FfiValueKind.TimeSpan => DecodeTimeSpan(payload),
                 FfiValueKind.GuidUtf8 => DecodeGuid(payload),
                 FfiValueKind.UriUtf8 => DecodeUri(payload),
                 FfiValueKind.Array => DecodeArray(payload, depth + 1),
@@ -6154,6 +6160,12 @@ namespace NativeHost
             long ticks = BinaryPrimitives.ReadInt64LittleEndian(payload);
             short offsetMinutes = BinaryPrimitives.ReadInt16LittleEndian(payload.Slice(sizeof(long)));
             return new DateTimeOffset(ticks, TimeSpan.FromMinutes(offsetMinutes));
+        }
+
+        private static object DecodeTimeSpan(ReadOnlySpan<byte> payload)
+        {
+            RequireLength(payload, sizeof(long), "TimeSpan");
+            return TimeSpan.FromTicks(BinaryPrimitives.ReadInt64LittleEndian(payload));
         }
 
         private static object DecodeGuid(ReadOnlySpan<byte> payload)
@@ -7110,7 +7122,7 @@ namespace NativeHost
 
         private sealed class FfiSnapshotCollector
         {
-            private const int FieldCount = 20;
+            private const int FieldCount = 21;
             private const int LiveRecordCapacity = FfiMaxStreamRecords * FfiStreamCount;
             private readonly List<FfiStreamRecord>[] streams;
             private readonly uint[] streamFlags;
@@ -7203,6 +7215,7 @@ namespace NativeHost
                 fields[2] = Bound(SafeGet(() => value?.FullyQualifiedErrorId) ?? string.Empty, ref truncated);
                 fields[3] = Bound(SafeGet(() => category?.Category.ToString()) ?? string.Empty, ref truncated);
                 fields[4] = Bound(exception?.GetType().FullName ?? string.Empty, ref truncated);
+                fields[20] = (exception?.HResult ?? 0).ToString(CultureInfo.InvariantCulture);
                 fields[5] = Bound(SafeGet(() => invocation?.InvocationName) ?? string.Empty, ref truncated);
                 fields[6] = Bound(SafeGet(() => invocation?.PositionMessage) ?? string.Empty, ref truncated);
                 fields[7] = Bound(SafeGet(() => value?.ScriptStackTrace) ?? string.Empty, ref truncated);
@@ -7670,6 +7683,10 @@ namespace NativeHost
                             payload = new byte[sizeof(long) + sizeof(short)];
                             BinaryPrimitives.WriteInt64LittleEndian(payload, dateTimeOffset.Ticks);
                             BinaryPrimitives.WriteInt16LittleEndian(payload.AsSpan(sizeof(long)), checked((short)dateTimeOffset.Offset.TotalMinutes));
+                            break;
+                        case TimeSpan timeSpan:
+                            kind = (uint)FfiValueKind.TimeSpan;
+                            payload = BitConverter.GetBytes(timeSpan.Ticks);
                             break;
                         case Guid guid:
                             kind = (uint)FfiValueKind.GuidUtf8;

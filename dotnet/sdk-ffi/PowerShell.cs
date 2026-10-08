@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
@@ -37,6 +38,7 @@ public sealed unsafe class PowerShell : IDisposable
     private const ulong ObservedPresentationFeature = 1UL << 29;
     private const ulong SecretAdaptersFeature = 1UL << 30;
     private const ulong CredentialResultFeature = 1UL << 31;
+    private const ulong RemoteProviderDiagnosticsFeature = 1UL << 32;
     private const ulong LiveObjectProbeFeature = 1UL << 17;
     private const ulong LiveSessionObjectProbeFeature = 1UL << 18;
     private const ulong LiveObjectContractsFeature = 1UL << 19;
@@ -54,7 +56,7 @@ public sealed unsafe class PowerShell : IDisposable
         LiveObjectProbeFeature | LiveSessionObjectProbeFeature | LiveObjectContractsFeature |
         LiveStreamPollingFeature | TypedResultPagingFeature | ObservedInvocationFeature |
         SessionPreflightFeature | RuntimeDiagnosticsFeature | SecretAdaptersFeature |
-        CredentialResultFeature;
+        CredentialResultFeature | RemoteProviderDiagnosticsFeature;
     private const uint ResultTerminatingFailure = 1;
     private const uint ResultSequenceTruncated = 1 << 1;
     private const uint StreamTruncated = 1;
@@ -65,7 +67,7 @@ public sealed unsafe class PowerShell : IDisposable
     private const uint RecordTypeNamesTruncated = 1 << 4;
     private const uint RecordErrorTargetValuePresent = 1 << 5;
     private const uint StreamCount = 7;
-    private const uint RecordFieldCount = 20;
+    private const uint RecordFieldCount = 21;
     private const uint MaxRecordsPerStream = 32;
     private const uint MaxSequenceRecords = MaxRecordsPerStream * StreamCount;
     private const nuint MaxResultFieldUtf8Bytes = 16 * 1024;
@@ -1576,11 +1578,23 @@ public sealed unsafe class PowerShell : IDisposable
         for (int index = 0; index < errors.Length; index++)
         {
             NativeStreamRecord record = snapshot.Records[index];
+            if (!int.TryParse(
+                record.Fields[20],
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out int exceptionHResult))
+            {
+                throw new PowerShellFfiException(
+                    PowerShellFfiStatus.ManagedFailure,
+                    "Native PowerShell FFI returned an invalid exception HResult.");
+            }
+
             errors[index] = new PowerShellInvocationError(
                 record.Fields[0],
                 record.Fields[2],
                 record.Fields[3],
                 record.Fields[4],
+                exceptionHResult,
                 record.Fields[5],
                 record.Fields[6],
                 record.Fields[7],

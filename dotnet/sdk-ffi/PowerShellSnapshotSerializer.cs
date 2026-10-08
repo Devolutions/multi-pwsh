@@ -156,6 +156,7 @@ public static class PowerShellSnapshotSerializer
             FullyQualifiedErrorId = item.FullyQualifiedErrorId,
             Category = item.Category,
             ExceptionType = item.ExceptionType,
+            ExceptionHResult = item.ExceptionHResult,
             InvocationName = item.InvocationName,
             PositionMessage = item.PositionMessage,
             ScriptStackTrace = item.ScriptStackTrace,
@@ -275,6 +276,7 @@ public static class PowerShellSnapshotSerializer
                     Require(item.FullyQualifiedErrorId),
                     Require(item.Category),
                     Require(item.ExceptionType),
+                    item.ExceptionHResult,
                     Require(item.InvocationName),
                     Require(item.PositionMessage),
                     Require(item.ScriptStackTrace),
@@ -432,24 +434,25 @@ internal sealed class ErrorDto
     [JsonRequired, JsonPropertyOrder(1)] public string? FullyQualifiedErrorId { get; set; }
     [JsonRequired, JsonPropertyOrder(2)] public string? Category { get; set; }
     [JsonRequired, JsonPropertyOrder(3)] public string? ExceptionType { get; set; }
-    [JsonRequired, JsonPropertyOrder(4)] public string? InvocationName { get; set; }
-    [JsonRequired, JsonPropertyOrder(5)] public string? PositionMessage { get; set; }
-    [JsonRequired, JsonPropertyOrder(6)] public string? ScriptStackTrace { get; set; }
-    [JsonRequired, JsonPropertyOrder(7)] public string? CategoryReason { get; set; }
-    [JsonRequired, JsonPropertyOrder(8)] public string? CategoryActivity { get; set; }
-    [JsonRequired, JsonPropertyOrder(9)] public string? CategoryTargetName { get; set; }
-    [JsonRequired, JsonPropertyOrder(10)] public string? CategoryTargetType { get; set; }
-    [JsonRequired, JsonPropertyOrder(11)] public string? CommandName { get; set; }
-    [JsonRequired, JsonPropertyOrder(12)] public string? InvocationLine { get; set; }
-    [JsonRequired, JsonPropertyOrder(13)] public string? OffsetInLine { get; set; }
-    [JsonRequired, JsonPropertyOrder(14)] public string? PipelineLength { get; set; }
-    [JsonRequired, JsonPropertyOrder(15)] public string? PipelinePosition { get; set; }
-    [JsonRequired, JsonPropertyOrder(16)] public string? ErrorDetailsMessage { get; set; }
-    [JsonRequired, JsonPropertyOrder(17)] public string? RecommendedAction { get; set; }
-    [JsonRequired, JsonPropertyOrder(18)] public string? TargetDisplayText { get; set; }
-    [JsonPropertyOrder(19)] public ValueDto? TargetValue { get; set; }
-    [JsonRequired, JsonPropertyOrder(20)] public ulong Sequence { get; set; }
-    [JsonRequired, JsonPropertyOrder(21)] public bool IsTruncated { get; set; }
+    [JsonPropertyOrder(4)] public int ExceptionHResult { get; set; }
+    [JsonRequired, JsonPropertyOrder(5)] public string? InvocationName { get; set; }
+    [JsonRequired, JsonPropertyOrder(6)] public string? PositionMessage { get; set; }
+    [JsonRequired, JsonPropertyOrder(7)] public string? ScriptStackTrace { get; set; }
+    [JsonRequired, JsonPropertyOrder(8)] public string? CategoryReason { get; set; }
+    [JsonRequired, JsonPropertyOrder(9)] public string? CategoryActivity { get; set; }
+    [JsonRequired, JsonPropertyOrder(10)] public string? CategoryTargetName { get; set; }
+    [JsonRequired, JsonPropertyOrder(11)] public string? CategoryTargetType { get; set; }
+    [JsonRequired, JsonPropertyOrder(12)] public string? CommandName { get; set; }
+    [JsonRequired, JsonPropertyOrder(13)] public string? InvocationLine { get; set; }
+    [JsonRequired, JsonPropertyOrder(14)] public string? OffsetInLine { get; set; }
+    [JsonRequired, JsonPropertyOrder(15)] public string? PipelineLength { get; set; }
+    [JsonRequired, JsonPropertyOrder(16)] public string? PipelinePosition { get; set; }
+    [JsonRequired, JsonPropertyOrder(17)] public string? ErrorDetailsMessage { get; set; }
+    [JsonRequired, JsonPropertyOrder(18)] public string? RecommendedAction { get; set; }
+    [JsonRequired, JsonPropertyOrder(19)] public string? TargetDisplayText { get; set; }
+    [JsonPropertyOrder(20)] public ValueDto? TargetValue { get; set; }
+    [JsonRequired, JsonPropertyOrder(21)] public ulong Sequence { get; set; }
+    [JsonRequired, JsonPropertyOrder(22)] public bool IsTruncated { get; set; }
 }
 
 internal sealed class TextDto

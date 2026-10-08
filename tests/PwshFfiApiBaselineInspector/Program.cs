@@ -76,7 +76,7 @@ NativeImportInspection[] nativeImports = nativeMethodsType.GetMethods(StaticNonP
     .ToArray();
 
 ValidateAbiCompatibility(facadeAssembly, StaticNonPublic);
-ValidatePowerShellValuePager();
+ValidatePowerShellValueTimeSpanPayload();
 
 var inspection = new FacadeInspection(
     facadeAssembly.GetReferencedAssemblies().Select(reference => reference.Name!).OrderBy(name => name, StringComparer.Ordinal).ToArray(),
@@ -112,9 +112,9 @@ static void ValidateAbiCompatibility(Assembly facadeAssembly, BindingFlags stati
         throw new InvalidOperationException("The facade must retain an ABI validation overload that accepts NativeAbiInfo.");
     }
 
-    const ulong allRequiredFeatures = 0xC1FFFDFF;
+    const ulong allRequiredFeatures = 0x1C1FFFDFF;
     ensureSupportedAbi.Invoke(null, [CreateAbiInfo(abiInfoType, allRequiredFeatures, abiVersion: 2, minimumCompatibleAbiVersion: 2)]);
-    foreach (int bit in Enumerable.Range(0, 25).Concat([30, 31]))
+    foreach (int bit in Enumerable.Range(0, 25).Concat([30, 31, 32]))
     {
         if ((allRequiredFeatures & (1UL << bit)) == 0)
         {
@@ -171,23 +171,86 @@ static bool IsRejected(MethodInfo ensureSupportedAbi, object abiInfo)
     }
 }
 
-static void ValidatePowerShellValuePager()
+static void ValidatePowerShellValueTimeSpanPayload()
 {
-    using var pager = new PowerShellValuePager(new PowerShellValuePagerOptions(1, 1));
-    pager.Write(PowerShellValue.String("value"));
-    pager.Complete();
-
-    PowerShellValuePage page = pager.Read(0);
-    if (!page.IsTerminal || page.IsComplete || page.NextSequence != 1 || page.Records.Count != 1)
+    if ((uint)PowerShellValueKind.TimeSpan != 17)
     {
-        throw new InvalidOperationException("PowerShellValuePager did not return the expected terminal page.");
+        throw new InvalidOperationException("PowerShellValueKind.TimeSpan must append at wire kind 17 without renumbering V1 values.");
     }
 
-    pager.Acknowledge(page.NextSequence);
-    page = pager.Read(page.NextSequence);
-    if (!page.IsComplete || page.Records.Count != 0 || !pager.GetCompletion().IsComplete)
+    TimeSpan[] expectedValues =
+    [
+        TimeSpan.MinValue,
+        TimeSpan.FromTicks(-1),
+        TimeSpan.Zero,
+        TimeSpan.MaxValue,
+    ];
+    PropertyInfo payloadProperty = typeof(PowerShellValue).GetProperty(
+        "Payload",
+        BindingFlags.Instance | BindingFlags.NonPublic)!;
+    foreach (TimeSpan expected in expectedValues)
     {
-        throw new InvalidOperationException("PowerShellValuePager did not require acknowledgement before completion.");
+        PowerShellValue value = PowerShellValue.TimeSpan(expected);
+        TimeSpan actual = default;
+        if (value.Kind != PowerShellValueKind.TimeSpan ||
+            !value.TryGetTimeSpan(out actual) ||
+            actual.Ticks != expected.Ticks)
+        {
+            throw new InvalidOperationException($"PowerShellValue TimeSpan did not round-trip exact ticks {expected.Ticks}.");
+        }
+
+        byte[] payload = (byte[])payloadProperty.GetValue(value)!;
+        byte[] expectedPayload = Enumerable.Range(0, sizeof(long))
+            .Select(index => (byte)(expected.Ticks >> (index * 8)))
+            .ToArray();
+        if (!payload.SequenceEqual(expectedPayload))
+        {
+            throw new InvalidOperationException($"PowerShellValue TimeSpan payload was not an eight-byte little-endian tick count for {expected.Ticks}.");
+        }
+    }
+
+    PowerShellValue copied = PowerShellValue.From(TimeSpan.FromTicks(-123456789));
+    TimeSpan copiedResult = default;
+    if (copied.Kind != PowerShellValueKind.TimeSpan ||
+        !copied.TryGetTimeSpan(out copiedResult) ||
+        copiedResult.Ticks != -123456789)
+    {
+        throw new InvalidOperationException("PowerShellValue.From did not preserve a copied TimeSpan.");
+    }
+
+    if (PowerShellValue.SignedInteger(-123456789).TryGetTimeSpan(out TimeSpan wrongKindResult) ||
+        wrongKindResult != default)
+    {
+        throw new InvalidOperationException("TryGetTimeSpan accepted a non-TimeSpan tagged value.");
+    }
+
+    MethodInfo fromNative = typeof(PowerShellValue).GetMethod(
+        "FromNative",
+        BindingFlags.Static | BindingFlags.NonPublic)!;
+    long nativeTicks = -72623859790382856;
+    byte[] nativePayload = Enumerable.Range(0, sizeof(long))
+        .Select(index => (byte)(nativeTicks >> (index * 8)))
+        .ToArray();
+    PowerShellValue nativeCopy = (PowerShellValue)fromNative.Invoke(
+        null,
+        [(uint)PowerShellValueKind.TimeSpan, nativePayload])!;
+    Array.Fill(nativePayload, (byte)0);
+    if (!nativeCopy.TryGetTimeSpan(out TimeSpan nativeResult) ||
+        nativeResult.Ticks != nativeTicks)
+    {
+        throw new InvalidOperationException("PowerShellValue did not decode and detach a copied native TimeSpan payload.");
+    }
+
+    foreach (int invalidLength in new[] { sizeof(long) - 1, sizeof(long) + 1 })
+    {
+        try
+        {
+            _ = fromNative.Invoke(null, [(uint)PowerShellValueKind.TimeSpan, new byte[invalidLength]]);
+            throw new InvalidOperationException($"PowerShellValue accepted a malformed TimeSpan payload length of {invalidLength}.");
+        }
+        catch (TargetInvocationException exception) when (exception.InnerException is PowerShellFfiException)
+        {
+        }
     }
 }
 

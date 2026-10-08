@@ -78,6 +78,13 @@ if (SixtyThreeMemberDtoPowerShellDtoProjection.Write(new SixtyThreeMemberDto()).
     throw new InvalidOperationException("Generated PowerShell DTO projection did not reserve one property bag entry for $version.");
 }
 
+VerifyCheckedNarrowIntegerBoundaries();
+VerifyNullableSupportedScalars();
+VerifyNonFlagsEnumsWithExplicitUnderlyingConversions();
+VerifyTimeSpanProjection();
+VerifyBoundedNestedDtoProjection();
+VerifyNestedDtoGeneratorDiagnostics();
+
 VerifyGeneratorDiagnostic(
     """
     using Devolutions.PowerShell.Ffi;
@@ -151,26 +158,26 @@ VerifyGeneratorDiagnostic(
     "}",
     "MPWDTO001",
     "a DTO with more than 63 members");
-
-using (var pager = new PowerShellValuePager(new PowerShellValuePagerOptions(maximumBufferedRecords: 2, maximumPageRecords: 1)))
-{
-    pager.Write(PowerShellValue.String("one"));
-    pager.Write(PowerShellValue.String("two"));
-    PowerShellValuePage first = pager.Read(0);
-    if (first.Records.Count != 1 || first.NextSequence != 1)
+VerifyGeneratorDiagnostic(
+    """
+    using System;
+    using Devolutions.PowerShell.Ffi;
+    [PowerShellDtoContract(1)]
+    public sealed class FlagsDto
     {
-        throw new InvalidOperationException("Bounded pager did not return the first ordered page.");
+        [PowerShellDtoMember] public UnsupportedFlags Value { get; set; }
     }
-
-    pager.Acknowledge(first.NextSequence);
-    PowerShellValuePage second = pager.Read(first.NextSequence);
-    pager.Acknowledge(second.NextSequence);
-    pager.Complete();
-    if (!pager.GetCompletion().IsComplete)
+    [Flags]
+    public enum UnsupportedFlags : ushort
     {
-        throw new InvalidOperationException("Bounded pager reported a fully acknowledged terminal result as incomplete.");
+        None = 0,
+        First = 1,
+        Second = 2,
     }
-}
+    """,
+    "MPWDTO002",
+    "a [Flags] enum DTO member",
+    "Flags");
 
 static void ExpectValueTooLarge(Action action, string description)
 {
@@ -186,7 +193,454 @@ static void ExpectValueTooLarge(Action action, string description)
     throw new InvalidOperationException(description);
 }
 
-static void VerifyGeneratorDiagnostic(string source, string expectedDiagnostic, string description)
+static void VerifyCheckedNarrowIntegerBoundaries()
+{
+    var minimum = new NarrowIntegerDto
+    {
+        SignedByte = sbyte.MinValue,
+        SignedShort = short.MinValue,
+        SignedInt = int.MinValue,
+        Byte = byte.MinValue,
+        UnsignedShort = ushort.MinValue,
+        UnsignedInt = uint.MinValue,
+    };
+    var maximum = new NarrowIntegerDto
+    {
+        SignedByte = sbyte.MaxValue,
+        SignedShort = short.MaxValue,
+        SignedInt = int.MaxValue,
+        Byte = byte.MaxValue,
+        UnsignedShort = ushort.MaxValue,
+        UnsignedInt = uint.MaxValue,
+    };
+
+    NarrowIntegerDto minimumResult = NarrowIntegerDtoPowerShellDtoProjection.Read(
+        NarrowIntegerDtoPowerShellDtoProjection.Write(minimum));
+    NarrowIntegerDto maximumResult = NarrowIntegerDtoPowerShellDtoProjection.Read(
+        NarrowIntegerDtoPowerShellDtoProjection.Write(maximum));
+    if (minimumResult.SignedByte != sbyte.MinValue ||
+        minimumResult.SignedShort != short.MinValue ||
+        minimumResult.SignedInt != int.MinValue ||
+        minimumResult.Byte != byte.MinValue ||
+        minimumResult.UnsignedShort != ushort.MinValue ||
+        minimumResult.UnsignedInt != uint.MinValue ||
+        maximumResult.SignedByte != sbyte.MaxValue ||
+        maximumResult.SignedShort != short.MaxValue ||
+        maximumResult.SignedInt != int.MaxValue ||
+        maximumResult.Byte != byte.MaxValue ||
+        maximumResult.UnsignedShort != ushort.MaxValue ||
+        maximumResult.UnsignedInt != uint.MaxValue)
+    {
+        throw new InvalidOperationException("Generated DTO projection did not preserve checked narrow integer boundaries.");
+    }
+
+    PowerShellValue maximumWire = NarrowIntegerDtoPowerShellDtoProjection.Write(maximum);
+    RequireSignedMember(maximumWire, nameof(NarrowIntegerDto.SignedByte), sbyte.MaxValue);
+    RequireSignedMember(maximumWire, nameof(NarrowIntegerDto.SignedShort), short.MaxValue);
+    RequireSignedMember(maximumWire, nameof(NarrowIntegerDto.SignedInt), int.MaxValue);
+    RequireUnsignedMember(maximumWire, nameof(NarrowIntegerDto.Byte), byte.MaxValue);
+    RequireUnsignedMember(maximumWire, nameof(NarrowIntegerDto.UnsignedShort), ushort.MaxValue);
+    RequireUnsignedMember(maximumWire, nameof(NarrowIntegerDto.UnsignedInt), uint.MaxValue);
+
+    (string Member, PowerShellValue Invalid)[] invalidValues =
+    [
+        (nameof(NarrowIntegerDto.SignedByte), PowerShellValue.SignedInteger((long)sbyte.MinValue - 1)),
+        (nameof(NarrowIntegerDto.SignedByte), PowerShellValue.SignedInteger((long)sbyte.MaxValue + 1)),
+        (nameof(NarrowIntegerDto.SignedShort), PowerShellValue.SignedInteger((long)short.MinValue - 1)),
+        (nameof(NarrowIntegerDto.SignedShort), PowerShellValue.SignedInteger((long)short.MaxValue + 1)),
+        (nameof(NarrowIntegerDto.SignedInt), PowerShellValue.SignedInteger((long)int.MinValue - 1)),
+        (nameof(NarrowIntegerDto.SignedInt), PowerShellValue.SignedInteger((long)int.MaxValue + 1)),
+        (nameof(NarrowIntegerDto.Byte), PowerShellValue.SignedInteger(-1)),
+        (nameof(NarrowIntegerDto.Byte), PowerShellValue.UnsignedInteger((ulong)byte.MaxValue + 1)),
+        (nameof(NarrowIntegerDto.UnsignedShort), PowerShellValue.SignedInteger(-1)),
+        (nameof(NarrowIntegerDto.UnsignedShort), PowerShellValue.UnsignedInteger((ulong)ushort.MaxValue + 1)),
+        (nameof(NarrowIntegerDto.UnsignedInt), PowerShellValue.SignedInteger(-1)),
+        (nameof(NarrowIntegerDto.UnsignedInt), PowerShellValue.UnsignedInteger((ulong)uint.MaxValue + 1)),
+    ];
+    foreach ((string member, PowerShellValue invalid) in invalidValues)
+    {
+        PowerShellValue wire = ReplaceProperty(maximumWire, member, invalid);
+        if (NarrowIntegerDtoPowerShellDtoProjection.TryRead(wire, out _, out PowerShellDtoProjectionError? error) ||
+            error is not { Failure: PowerShellDtoProjectionFailure.InvalidValue } ||
+            error?.Path != member)
+        {
+            throw new InvalidOperationException(
+                $"Generated DTO projection did not reject the out-of-range {member} boundary with its concrete member path.");
+        }
+    }
+}
+
+static void VerifyNullableSupportedScalars()
+{
+    DateTime dateTime = new(2026, 10, 7, 13, 27, 45, DateTimeKind.Utc);
+    DateTimeOffset dateTimeOffset = new(2026, 10, 7, 9, 27, 45, TimeSpan.FromHours(-4));
+    Guid guid = Guid.Parse("e4d7c9a4-d175-463e-91dd-987687db7258");
+    Uri uri = new("https://example.test/nullable");
+    TimeSpan duration = TimeSpan.FromTicks(-987654321);
+    var populated = new NullableScalarDto
+    {
+        Text = "value",
+        Boolean = true,
+        SignedByte = sbyte.MinValue,
+        SignedShort = short.MaxValue,
+        SignedInt = int.MinValue,
+        SignedLong = long.MaxValue,
+        Byte = byte.MaxValue,
+        UnsignedShort = ushort.MaxValue,
+        UnsignedInt = uint.MaxValue,
+        UnsignedLong = ulong.MaxValue,
+        Double = -1.25,
+        Decimal = 79228162514264337593543950335m,
+        DateTime = dateTime,
+        DateTimeOffset = dateTimeOffset,
+        Guid = guid,
+        Uri = uri,
+        Duration = duration,
+        State = SignedState.Negative,
+    };
+
+    NullableScalarDto populatedResult = NullableScalarDtoPowerShellDtoProjection.Read(
+        NullableScalarDtoPowerShellDtoProjection.Write(populated));
+    if (populatedResult.Text != "value" ||
+        populatedResult.Boolean != true ||
+        populatedResult.SignedByte != sbyte.MinValue ||
+        populatedResult.SignedShort != short.MaxValue ||
+        populatedResult.SignedInt != int.MinValue ||
+        populatedResult.SignedLong != long.MaxValue ||
+        populatedResult.Byte != byte.MaxValue ||
+        populatedResult.UnsignedShort != ushort.MaxValue ||
+        populatedResult.UnsignedInt != uint.MaxValue ||
+        populatedResult.UnsignedLong != ulong.MaxValue ||
+        populatedResult.Double != -1.25 ||
+        populatedResult.Decimal != decimal.MaxValue ||
+        populatedResult.DateTime != dateTime ||
+        populatedResult.DateTimeOffset != dateTimeOffset ||
+        populatedResult.Guid != guid ||
+        populatedResult.Uri != uri ||
+        populatedResult.Duration != duration ||
+        populatedResult.State != SignedState.Negative)
+    {
+        throw new InvalidOperationException("Generated DTO projection did not preserve populated nullable supported scalars.");
+    }
+
+    PowerShellValue nullWire = NullableScalarDtoPowerShellDtoProjection.Write(new NullableScalarDto());
+    if (nullWire.GetPropertyBag().Count != 19 ||
+        nullWire.GetPropertyBag()
+        .Where(static property => property.Key != PowerShellDtoProjection.VersionMemberName)
+        .Any(static property => property.Value.Kind != PowerShellValueKind.Null))
+    {
+        throw new InvalidOperationException("Generated DTO projection did not encode nullable scalar nulls with the Null tagged kind.");
+    }
+
+    NullableScalarDto nullResult = NullableScalarDtoPowerShellDtoProjection.Read(nullWire);
+    if (nullResult.Text is not null ||
+        nullResult.Boolean is not null ||
+        nullResult.SignedByte is not null ||
+        nullResult.SignedShort is not null ||
+        nullResult.SignedInt is not null ||
+        nullResult.SignedLong is not null ||
+        nullResult.Byte is not null ||
+        nullResult.UnsignedShort is not null ||
+        nullResult.UnsignedInt is not null ||
+        nullResult.UnsignedLong is not null ||
+        nullResult.Double is not null ||
+        nullResult.Decimal is not null ||
+        nullResult.DateTime is not null ||
+        nullResult.DateTimeOffset is not null ||
+        nullResult.Guid is not null ||
+        nullResult.Uri is not null ||
+        nullResult.Duration is not null ||
+        nullResult.State is not null)
+    {
+        throw new InvalidOperationException("Generated DTO projection did not restore nullable scalar nulls.");
+    }
+}
+
+static void VerifyNonFlagsEnumsWithExplicitUnderlyingConversions()
+{
+    var expected = new EnumDto
+    {
+        Signed = SignedState.Negative,
+        Unsigned = UnsignedState.Maximum,
+    };
+    PowerShellValue wire = EnumDtoPowerShellDtoProjection.Write(expected);
+    RequireSignedMember(wire, nameof(EnumDto.Signed), -2);
+    RequireUnsignedMember(wire, nameof(EnumDto.Unsigned), uint.MaxValue);
+
+    EnumDto result = EnumDtoPowerShellDtoProjection.Read(wire);
+    if (result.Signed != SignedState.Negative || result.Unsigned != UnsignedState.Maximum)
+    {
+        throw new InvalidOperationException("Generated DTO projection did not use explicit enum underlying integer conversions.");
+    }
+
+    VerifyInvalidEnumRead(
+        ReplaceProperty(wire, nameof(EnumDto.Signed), PowerShellValue.SignedInteger(-1)),
+        nameof(EnumDto.Signed));
+    VerifyInvalidEnumRead(
+        ReplaceProperty(wire, nameof(EnumDto.Unsigned), PowerShellValue.UnsignedInteger(1)),
+        nameof(EnumDto.Unsigned));
+}
+
+static void VerifyTimeSpanProjection()
+{
+    var expected = new TimeSpanDto
+    {
+        Negative = TimeSpan.FromTicks(-1),
+        Positive = TimeSpan.MaxValue,
+    };
+    PowerShellValue wire = TimeSpanDtoPowerShellDtoProjection.Write(expected);
+    IReadOnlyDictionary<string, PowerShellValue> properties = wire.GetPropertyBag();
+    TimeSpan negative = default;
+    TimeSpan positive = default;
+    if (!properties[nameof(TimeSpanDto.Negative)].TryGetTimeSpan(out negative) ||
+        properties[nameof(TimeSpanDto.Negative)].Kind != PowerShellValueKind.TimeSpan ||
+        negative.Ticks != -1 ||
+        !properties[nameof(TimeSpanDto.Positive)].TryGetTimeSpan(out positive) ||
+        properties[nameof(TimeSpanDto.Positive)].Kind != PowerShellValueKind.TimeSpan ||
+        positive.Ticks != TimeSpan.MaxValue.Ticks)
+    {
+        throw new InvalidOperationException("Generated DTO projection did not encode TimeSpan values with exact ticks.");
+    }
+
+    TimeSpanDto result = TimeSpanDtoPowerShellDtoProjection.Read(wire);
+    if (result.Negative != expected.Negative || result.Positive != expected.Positive)
+    {
+        throw new InvalidOperationException("Generated DTO projection did not round-trip negative and positive TimeSpan boundaries.");
+    }
+}
+
+static void VerifyBoundedNestedDtoProjection()
+{
+    var expected = new ParentDto
+    {
+        Child = new ChildDto { Label = "root", Count = int.MinValue },
+        Children =
+        [
+            new ChildDto { Label = "one", Count = 1 },
+            new ChildDto { Label = "two", Count = int.MaxValue },
+        ],
+    };
+    PowerShellValue wire = ParentDtoPowerShellDtoProjection.Write(expected);
+    IReadOnlyDictionary<string, PowerShellValue> properties = wire.GetPropertyBag();
+    if (properties[nameof(ParentDto.Child)].Kind != PowerShellValueKind.PropertyBag ||
+        properties[nameof(ParentDto.Children)].Kind != PowerShellValueKind.Array ||
+        properties[nameof(ParentDto.Children)].GetArray().Count != 2)
+    {
+        throw new InvalidOperationException("Generated DTO projection did not encode nested DTOs as bounded property bags.");
+    }
+
+    ParentDto result = ParentDtoPowerShellDtoProjection.Read(wire);
+    if (result.Child is not { Label: "root", Count: int.MinValue } ||
+        result.Children.Length != 2 ||
+        result.Children[0] is not { Label: "one", Count: 1 } ||
+        result.Children[1] is not { Label: "two", Count: int.MaxValue })
+    {
+        throw new InvalidOperationException("Generated DTO projection did not round-trip a nested DTO and one-dimensional nested DTO array.");
+    }
+
+    VerifyParentWriteFailure(
+        new ParentDto
+        {
+            Child = new ChildDto { Label = "fives", Count = 0 },
+            Children = [],
+        },
+        PowerShellDtoProjectionFailure.ValueTooLarge,
+        "Child.Label",
+        "Generated DTO projection did not enforce the nested child string bound.");
+    VerifyParentWriteFailure(
+        new ParentDto
+        {
+            Child = new ChildDto { Label = "root", Count = 0 },
+            Children =
+            [
+                new ChildDto { Label = "one", Count = 1 },
+                new ChildDto { Label = "two", Count = 2 },
+                new ChildDto { Label = "tri", Count = 3 },
+            ],
+        },
+        PowerShellDtoProjectionFailure.ValueTooLarge,
+        nameof(ParentDto.Children),
+        "Generated DTO projection did not enforce the nested DTO array count bound.");
+
+    PowerShellValue oversizedChild = PowerShellDtoProjection.CreatePropertyBag(
+        1,
+        [
+            new(nameof(ChildDto.Label), PowerShellValue.String("fives")),
+            new(nameof(ChildDto.Count), PowerShellValue.SignedInteger(0)),
+        ]);
+    VerifyParentReadFailure(
+        PowerShellDtoProjection.CreatePropertyBag(
+            1,
+            [
+                new(nameof(ParentDto.Child), oversizedChild),
+                new(nameof(ParentDto.Children), PowerShellValue.Array([])),
+            ]),
+        PowerShellDtoProjectionFailure.ValueTooLarge,
+        "Child.Label",
+        "Generated DTO projection accepted an oversized nested child string while reading.");
+
+    PowerShellValue validChild = ChildDtoPowerShellDtoProjection.Write(
+        new ChildDto { Label = "root", Count = 0 });
+    VerifyParentReadFailure(
+        PowerShellDtoProjection.CreatePropertyBag(
+            1,
+            [
+                new(nameof(ParentDto.Child), validChild),
+                new(
+                    nameof(ParentDto.Children),
+                    PowerShellValue.Array([validChild, validChild, validChild])),
+            ]),
+        PowerShellDtoProjectionFailure.ValueTooLarge,
+        nameof(ParentDto.Children),
+        "Generated DTO projection accepted too many nested DTO array elements while reading.");
+    VerifyParentReadFailure(
+        PowerShellDtoProjection.CreatePropertyBag(
+            1,
+            [
+                new(nameof(ParentDto.Child), PowerShellValue.SignedInteger(1)),
+                new(nameof(ParentDto.Children), PowerShellValue.Array([])),
+            ]),
+        PowerShellDtoProjectionFailure.InvalidValue,
+        nameof(ParentDto.Child),
+        "Generated DTO projection accepted a non-property-bag nested DTO.");
+}
+
+static void VerifyNestedDtoGeneratorDiagnostics()
+{
+    VerifyGeneratorDiagnostic(
+        """
+        using Devolutions.PowerShell.Ffi;
+        [PowerShellDtoContract(1)]
+        public sealed class SelfCycleDto
+        {
+            [PowerShellDtoMember] public SelfCycleDto Value { get; set; } = null!;
+        }
+        """,
+        "MPWDTO001",
+        "a self-referential DTO cycle",
+        "cycle");
+    VerifyGeneratorDiagnostic(
+        """
+        using Devolutions.PowerShell.Ffi;
+        [PowerShellDtoContract(1)]
+        public sealed class FirstCycleDto
+        {
+            [PowerShellDtoMember] public SecondCycleDto Value { get; set; } = null!;
+        }
+        [PowerShellDtoContract(1)]
+        public sealed class SecondCycleDto
+        {
+            [PowerShellDtoMember] public FirstCycleDto Value { get; set; } = null!;
+        }
+        """,
+        "MPWDTO001",
+        "a mutually-referential DTO cycle",
+        "cycle");
+
+    var depthSource = new System.Text.StringBuilder(
+        "using Devolutions.PowerShell.Ffi;" + Environment.NewLine);
+    for (int index = 0; index <= PowerShellValue.MaximumDepth + 1; index++)
+    {
+        string propertyType = index == PowerShellValue.MaximumDepth + 1
+            ? "bool"
+            : $"DepthDto{index + 1}";
+        string initializer = propertyType == "bool" ? string.Empty : " = null!;";
+        depthSource.AppendLine($$"""
+            [PowerShellDtoContract(1)]
+            public sealed class DepthDto{{index}}
+            {
+                [PowerShellDtoMember] public {{propertyType}} Value { get; set; }{{initializer}}
+            }
+            """);
+    }
+    VerifyGeneratorDiagnostic(
+        depthSource.ToString(),
+        "MPWDTO001",
+        "a DTO graph deeper than the tagged value bound",
+        "depth");
+}
+
+static PowerShellValue ReplaceProperty(PowerShellValue source, string member, PowerShellValue replacement)
+{
+    return PowerShellValue.PropertyBag(
+        source.GetPropertyBag().Select(property =>
+            new KeyValuePair<string, PowerShellValue>(
+                property.Key,
+                string.Equals(property.Key, member, StringComparison.Ordinal)
+                    ? replacement
+                    : property.Value)));
+}
+
+static void RequireSignedMember(PowerShellValue source, string member, long expected)
+{
+    if (!source.TryGetProperty(member, out PowerShellValue? value) ||
+        value!.Kind != PowerShellValueKind.SignedInteger ||
+        !value.TryGetSignedInteger(out long actual) ||
+        actual != expected)
+    {
+        throw new InvalidOperationException($"Generated DTO projection did not encode {member} as signed integer {expected}.");
+    }
+}
+
+static void RequireUnsignedMember(PowerShellValue source, string member, ulong expected)
+{
+    if (!source.TryGetProperty(member, out PowerShellValue? value) ||
+        value!.Kind != PowerShellValueKind.UnsignedInteger ||
+        !value.TryGetUnsignedInteger(out ulong actual) ||
+        actual != expected)
+    {
+        throw new InvalidOperationException($"Generated DTO projection did not encode {member} as unsigned integer {expected}.");
+    }
+}
+
+static void VerifyInvalidEnumRead(PowerShellValue wire, string member)
+{
+    if (EnumDtoPowerShellDtoProjection.TryRead(wire, out _, out PowerShellDtoProjectionError? error) ||
+        error is not { Failure: PowerShellDtoProjectionFailure.InvalidValue } ||
+        error?.Path != member)
+    {
+        throw new InvalidOperationException($"Generated DTO projection accepted undefined enum value for {member}.");
+    }
+}
+
+static void VerifyParentReadFailure(
+    PowerShellValue wire,
+    PowerShellDtoProjectionFailure expectedFailure,
+    string expectedPath,
+    string description)
+{
+    if (ParentDtoPowerShellDtoProjection.TryRead(wire, out _, out PowerShellDtoProjectionError? error) ||
+        error?.Failure != expectedFailure ||
+        error?.Path != expectedPath)
+    {
+        throw new InvalidOperationException(description);
+    }
+}
+
+static void VerifyParentWriteFailure(
+    ParentDto value,
+    PowerShellDtoProjectionFailure expectedFailure,
+    string expectedPath,
+    string description)
+{
+    try
+    {
+        _ = ParentDtoPowerShellDtoProjection.Write(value);
+    }
+    catch (PowerShellDtoProjectionException exception)
+        when (exception.Error.Failure == expectedFailure && exception.Error.Path == expectedPath)
+    {
+        return;
+    }
+
+    throw new InvalidOperationException(description);
+}
+
+static void VerifyGeneratorDiagnostic(
+    string source,
+    string expectedDiagnostic,
+    string description,
+    string? expectedMessageFragment = null)
 {
     CSharpCompilation compilation = CSharpCompilation.Create(
         "DtoContractGeneratorRegression",
@@ -197,12 +651,20 @@ static void VerifyGeneratorDiagnostic(string source, string expectedDiagnostic, 
             MetadataReference.CreateFromFile(typeof(PowerShellDtoContractAttribute).Assembly.Location),
         ],
         new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
-    GeneratorDriver driver = CSharpGeneratorDriver.Create(new DtoContractGenerator());
+    GeneratorDriver driver = CSharpGeneratorDriver.Create(
+        [new DtoContractGenerator().AsSourceGenerator()],
+        parseOptions: new CSharpParseOptions(LanguageVersion.Preview));
     driver.RunGeneratorsAndUpdateCompilation(compilation, out Compilation output, out var generatorDiagnostics);
     Diagnostic[] diagnostics = generatorDiagnostics.Concat(output.GetDiagnostics()).ToArray();
-    if (!diagnostics.Any(diagnostic => diagnostic.Id == expectedDiagnostic))
+    if (!diagnostics.Any(diagnostic =>
+            diagnostic.Id == expectedDiagnostic &&
+            (expectedMessageFragment is null ||
+             diagnostic.GetMessage().Contains(expectedMessageFragment, StringComparison.OrdinalIgnoreCase))))
     {
-        throw new InvalidOperationException($"The DTO generator did not reject {description} with {expectedDiagnostic}: {string.Join("; ", diagnostics.Select(static diagnostic => $"{diagnostic.Id}: {diagnostic.GetMessage()}"))}");
+        throw new InvalidOperationException(
+            $"The DTO generator did not reject {description} with {expectedDiagnostic}" +
+            (expectedMessageFragment is null ? string.Empty : $" containing '{expectedMessageFragment}'") +
+            $": {string.Join("; ", diagnostics.Select(static diagnostic => $"{diagnostic.Id}: {diagnostic.GetMessage()}"))}");
     }
 }
 
@@ -224,6 +686,86 @@ public sealed class KeywordAndStringsDto
 {
     [PowerShellDtoMember(MaximumStringLength = 4, MaximumCollectionCount = 4)]
     public string[] @event { get; set; } = [];
+}
+
+[PowerShellDtoContract(1)]
+public sealed class NarrowIntegerDto
+{
+    [PowerShellDtoMember] public sbyte SignedByte { get; set; }
+    [PowerShellDtoMember] public short SignedShort { get; set; }
+    [PowerShellDtoMember] public int SignedInt { get; set; }
+    [PowerShellDtoMember] public byte Byte { get; set; }
+    [PowerShellDtoMember] public ushort UnsignedShort { get; set; }
+    [PowerShellDtoMember] public uint UnsignedInt { get; set; }
+}
+
+public enum SignedState : short
+{
+    Negative = -2,
+    Positive = short.MaxValue,
+}
+
+public enum UnsignedState : uint
+{
+    Zero = 0,
+    Maximum = uint.MaxValue,
+}
+
+[PowerShellDtoContract(1)]
+public sealed class NullableScalarDto
+{
+    [PowerShellDtoMember] public string? Text { get; set; }
+    [PowerShellDtoMember] public bool? Boolean { get; set; }
+    [PowerShellDtoMember] public sbyte? SignedByte { get; set; }
+    [PowerShellDtoMember] public short? SignedShort { get; set; }
+    [PowerShellDtoMember] public int? SignedInt { get; set; }
+    [PowerShellDtoMember] public long? SignedLong { get; set; }
+    [PowerShellDtoMember] public byte? Byte { get; set; }
+    [PowerShellDtoMember] public ushort? UnsignedShort { get; set; }
+    [PowerShellDtoMember] public uint? UnsignedInt { get; set; }
+    [PowerShellDtoMember] public ulong? UnsignedLong { get; set; }
+    [PowerShellDtoMember] public double? Double { get; set; }
+    [PowerShellDtoMember] public decimal? Decimal { get; set; }
+    [PowerShellDtoMember] public DateTime? DateTime { get; set; }
+    [PowerShellDtoMember] public DateTimeOffset? DateTimeOffset { get; set; }
+    [PowerShellDtoMember] public Guid? Guid { get; set; }
+    [PowerShellDtoMember] public Uri? Uri { get; set; }
+    [PowerShellDtoMember] public TimeSpan? Duration { get; set; }
+    [PowerShellDtoMember] public SignedState? State { get; set; }
+}
+
+[PowerShellDtoContract(1)]
+public sealed class EnumDto
+{
+    [PowerShellDtoMember] public SignedState Signed { get; set; }
+    [PowerShellDtoMember] public UnsignedState Unsigned { get; set; }
+}
+
+[PowerShellDtoContract(1)]
+public sealed class TimeSpanDto
+{
+    [PowerShellDtoMember] public TimeSpan Negative { get; set; }
+    [PowerShellDtoMember] public TimeSpan Positive { get; set; }
+}
+
+[PowerShellDtoContract(1)]
+public sealed class ChildDto
+{
+    [PowerShellDtoMember(MaximumStringLength = 4)]
+    public string Label { get; set; } = string.Empty;
+
+    [PowerShellDtoMember]
+    public int Count { get; set; }
+}
+
+[PowerShellDtoContract(1)]
+public sealed class ParentDto
+{
+    [PowerShellDtoMember]
+    public ChildDto Child { get; set; } = new();
+
+    [PowerShellDtoMember(MaximumCollectionCount = 2)]
+    public ChildDto[] Children { get; set; } = [];
 }
 
 [PowerShellDtoContract(1)]

@@ -15,6 +15,7 @@ public sealed class DtoContractGenerator : IIncrementalGenerator
 {
     private const string ContractAttribute = "Devolutions.PowerShell.Ffi.PowerShellDtoContractAttribute";
     private const string MemberAttribute = "Devolutions.PowerShell.Ffi.PowerShellDtoMemberAttribute";
+    private const int MaximumDtoDepth = 8;
 
     private static readonly DiagnosticDescriptor InvalidContract = new(
         "MPWDTO001",
@@ -43,9 +44,31 @@ public sealed class DtoContractGenerator : IIncrementalGenerator
 
         context.RegisterSourceOutput(contracts.Collect(), static (production, types) =>
         {
-            foreach (INamedTypeSymbol? candidate in types.Distinct(SymbolEqualityComparer.Default))
+            INamedTypeSymbol[] distinctTypes = types
+                .Distinct(SymbolEqualityComparer.Default)
+                .OfType<INamedTypeSymbol>()
+                .ToArray();
+            var invalidGraphs = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
+            foreach (INamedTypeSymbol type in distinctTypes)
             {
-                if (candidate is not INamedTypeSymbol type)
+                if (!TryValidateDtoGraph(
+                    type,
+                    new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default),
+                    0,
+                    out string reason))
+                {
+                    production.ReportDiagnostic(Diagnostic.Create(
+                        InvalidContract,
+                        Location(type),
+                        type.Name,
+                        reason));
+                    invalidGraphs.Add(type);
+                }
+            }
+
+            foreach (INamedTypeSymbol type in distinctTypes)
+            {
+                if (invalidGraphs.Contains(type))
                 {
                     continue;
                 }
@@ -59,6 +82,68 @@ public sealed class DtoContractGenerator : IIncrementalGenerator
                 }
             }
         });
+    }
+
+    private static bool TryValidateDtoGraph(
+        INamedTypeSymbol type,
+        HashSet<INamedTypeSymbol> ancestors,
+        int depth,
+        out string reason)
+    {
+        if (depth > MaximumDtoDepth)
+        {
+            reason = "contains a nested DTO graph whose depth exceeds eight levels";
+            return false;
+        }
+
+        if (!ancestors.Add(type))
+        {
+            reason = "contains a nested DTO cycle";
+            return false;
+        }
+
+        try
+        {
+            foreach (IPropertySymbol property in type.GetMembers().OfType<IPropertySymbol>())
+            {
+                if (!HasAttribute(property, MemberAttribute))
+                {
+                    continue;
+                }
+
+                INamedTypeSymbol? nested = GetNestedContractType(property.Type);
+                if (nested is not null &&
+                    !TryValidateDtoGraph(nested, ancestors, depth + 1, out reason))
+                {
+                    return false;
+                }
+            }
+        }
+        finally
+        {
+            ancestors.Remove(type);
+        }
+
+        reason = string.Empty;
+        return true;
+    }
+
+    private static INamedTypeSymbol? GetNestedContractType(ITypeSymbol type)
+    {
+        if (type is IArrayTypeSymbol { Rank: 1 } array)
+        {
+            type = array.ElementType;
+        }
+
+        if (type is INamedTypeSymbol nullable &&
+            nullable.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T)
+        {
+            type = nullable.TypeArguments[0];
+        }
+
+        return type is INamedTypeSymbol named && HasAttribute(named, ContractAttribute)
+            ? named
+            : null;
     }
 
     private static ContractInfo? Analyze(INamedTypeSymbol type, SourceProductionContext production)
@@ -129,8 +214,11 @@ public sealed class DtoContractGenerator : IIncrementalGenerator
             ProjectionKind kind = GetProjectionKind(property.Type);
             if (kind == ProjectionKind.Unsupported)
             {
+                string requirement = IsFlagsEnum(property.Type)
+                    ? "cannot use a [Flags] enum"
+                    : "must use a supported scalar, annotated nested DTO, or one-dimensional array of either";
                 production.ReportDiagnostic(Diagnostic.Create(UnsupportedMember, Location(property), property.Name,
-                    "must use a supported scalar or one-dimensional array of supported scalars"));
+                    requirement));
                 continue;
             }
 
@@ -218,9 +306,14 @@ public sealed class DtoContractGenerator : IIncrementalGenerator
         source.AppendLine("        global::System.ArgumentNullException.ThrowIfNull(value);");
         foreach (MemberInfo member in contract.Members)
         {
-            if (ReferenceEquals(member.Kind, ProjectionKind.String))
+            if (member.Kind.IsString)
             {
-                source.Append("        if (value.@").Append(member.PropertyName).Append(".Length > ")
+                source.Append("        if (value.@").Append(member.PropertyName);
+                if (member.Kind.IsNullable)
+                {
+                    source.Append(" is not null && value.@").Append(member.PropertyName);
+                }
+                source.Append(".Length > ")
                     .Append(member.MaximumStringLength.ToString(CultureInfo.InvariantCulture))
                     .AppendLine(") throw global::Devolutions.PowerShell.Ffi.PowerShellDtoProjection.CreateException(global::Devolutions.PowerShell.Ffi.PowerShellDtoProjection.ValueTooLarge(" + Literal(member.WireName) + ", \"The DTO string member exceeds its declared bound.\"));");
             }
@@ -229,10 +322,15 @@ public sealed class DtoContractGenerator : IIncrementalGenerator
                 source.Append("        if (value.@").Append(member.PropertyName).Append(".Length > ")
                     .Append(member.MaximumCollectionCount.ToString(CultureInfo.InvariantCulture))
                     .AppendLine(") throw global::Devolutions.PowerShell.Ffi.PowerShellDtoProjection.CreateException(global::Devolutions.PowerShell.Ffi.PowerShellDtoProjection.ValueTooLarge(" + Literal(member.WireName) + ", \"The DTO array exceeds its declared bound.\"));");
-                if (ReferenceEquals(member.Kind.Element, ProjectionKind.String))
+                if (member.Kind.Element!.IsString)
                 {
                     source.Append("        if (global::System.Linq.Enumerable.Any(value.@").Append(member.PropertyName)
-                        .Append(", static item => item.Length > ")
+                        .Append(", static item => ");
+                    if (member.Kind.Element.IsNullable)
+                    {
+                        source.Append("item is not null && ");
+                    }
+                    source.Append("item.Length > ")
                         .Append(member.MaximumStringLength.ToString(CultureInfo.InvariantCulture))
                         .AppendLine(")) throw global::Devolutions.PowerShell.Ffi.PowerShellDtoProjection.CreateException(global::Devolutions.PowerShell.Ffi.PowerShellDtoProjection.ValueTooLarge(" + Literal(member.WireName) + ", \"A DTO string array member contains an item that exceeds its declared bound.\"));");
                 }
@@ -247,6 +345,14 @@ public sealed class DtoContractGenerator : IIncrementalGenerator
         }
         source.AppendLine("        });");
         source.AppendLine("    }");
+        foreach (MemberInfo member in contract.Members)
+        {
+            ProjectionKind nested = member.Kind.IsArray ? member.Kind.Element! : member.Kind;
+            if (nested.IsDto)
+            {
+                EmitNestedWriter(source, member, nested);
+            }
+        }
         source.AppendLine("}");
         return source.ToString();
     }
@@ -260,9 +366,18 @@ public sealed class DtoContractGenerator : IIncrementalGenerator
             .AppendLine(" { result = default; return false; }");
         source.Append("        if (").Append(member.PropertyName).Append("Value is not null)").AppendLine();
         source.AppendLine("        {");
+        if (member.Kind.IsNullable && !member.Kind.IsArray)
+        {
+            source.Append("            if (").Append(member.PropertyName).AppendLine("Value.IsNull)");
+            source.AppendLine("            {");
+            source.Append("                dto.@").Append(member.PropertyName).AppendLine(" = null;");
+            source.AppendLine("            }");
+            source.AppendLine("            else");
+            source.AppendLine("            {");
+        }
         if (member.Kind.IsArray)
         {
-            string element = member.Kind.ElementName!;
+            string element = member.Kind.Element!.DeclaredTypeName;
             source.Append("            if (!global::Devolutions.PowerShell.Ffi.PowerShellDtoProjection.TryReadArray(")
                 .Append(member.PropertyName).Append("Value, ").Append(member.MaximumCollectionCount.ToString(CultureInfo.InvariantCulture))
                 .Append(", ").Append(path).Append(", out var values, out error)) { result = default; return false; }").AppendLine();
@@ -277,12 +392,16 @@ public sealed class DtoContractGenerator : IIncrementalGenerator
         {
             EmitScalarRead(source, member.Kind, member.PropertyName + "Value", "dto.@" + member.PropertyName, path, member.MaximumStringLength, "            ");
         }
+        if (member.Kind.IsNullable && !member.Kind.IsArray)
+        {
+            source.AppendLine("            }");
+        }
         source.AppendLine("        }");
     }
 
     private static void EmitScalarRead(StringBuilder source, ProjectionKind kind, string input, string output, string path, int maximumStringLength, string indent)
     {
-        if (kind == ProjectionKind.String)
+        if (kind.IsString)
         {
             source.Append(indent).Append("if (!global::Devolutions.PowerShell.Ffi.PowerShellDtoProjection.TryReadString(")
                 .Append(input).Append(", ").Append(maximumStringLength.ToString(CultureInfo.InvariantCulture))
@@ -291,48 +410,159 @@ public sealed class DtoContractGenerator : IIncrementalGenerator
             return;
         }
 
-        string method = ReferenceEquals(kind, ProjectionKind.Boolean) ? "TryGetBoolean"
-            : ReferenceEquals(kind, ProjectionKind.SignedInteger) ? "TryGetSignedInteger"
-            : ReferenceEquals(kind, ProjectionKind.UnsignedInteger) ? "TryGetUnsignedInteger"
-            : ReferenceEquals(kind, ProjectionKind.Double) ? "TryGetDouble"
-            : ReferenceEquals(kind, ProjectionKind.Decimal) ? "TryGetDecimal"
-            : ReferenceEquals(kind, ProjectionKind.DateTime) ? "TryGetDateTime"
-            : ReferenceEquals(kind, ProjectionKind.DateTimeOffset) ? "TryGetDateTimeOffset"
-            : ReferenceEquals(kind, ProjectionKind.Guid) ? "TryGetGuid"
-            : ReferenceEquals(kind, ProjectionKind.Uri) ? "TryGetUri"
+        if (kind.IsDto)
+        {
+            source.Append(indent).Append("if (!").Append(kind.DtoProjectionTypeName).Append(".TryRead(")
+                .Append(input).AppendLine(", out var scalar, out var nestedError))");
+            source.Append(indent).AppendLine("{");
+            source.Append(indent).Append("    string nestedPath = nestedError is null || global::System.String.IsNullOrEmpty(nestedError.Path) ? ")
+                .Append(path)
+                .Append(" : global::Devolutions.PowerShell.Ffi.PowerShellDtoProjection.JoinPath(")
+                .Append(path)
+                .AppendLine(", nestedError.Path);");
+            source.Append(indent).AppendLine("    error = nestedError?.Failure == global::Devolutions.PowerShell.Ffi.PowerShellDtoProjectionFailure.ValueTooLarge");
+            source.Append(indent).AppendLine("        ? global::Devolutions.PowerShell.Ffi.PowerShellDtoProjection.ValueTooLarge(nestedPath, nestedError.Message)");
+            source.Append(indent).AppendLine("        : global::Devolutions.PowerShell.Ffi.PowerShellDtoProjection.InvalidValue(nestedPath, nestedError?.Message ?? \"The nested DTO value is invalid.\");");
+            source.Append(indent).AppendLine("    result = default;");
+            source.Append(indent).AppendLine("    return false;");
+            source.Append(indent).AppendLine("}");
+            source.Append(indent).Append(output).AppendLine(" = scalar!;");
+            return;
+        }
+
+        string method = kind.Name == "Boolean" ? "TryGetBoolean"
+            : kind.Name == "SignedInteger" ? "TryGetSignedInteger"
+            : kind.Name == "UnsignedInteger" ? "TryGetUnsignedInteger"
+            : kind.Name == "Double" ? "TryGetDouble"
+            : kind.Name == "Decimal" ? "TryGetDecimal"
+            : kind.Name == "DateTime" ? "TryGetDateTime"
+            : kind.Name == "DateTimeOffset" ? "TryGetDateTimeOffset"
+            : kind.Name == "TimeSpan" ? "TryGetTimeSpan"
+            : kind.Name == "Guid" ? "TryGetGuid"
+            : kind.Name == "Uri" ? "TryGetUri"
             : throw new InvalidOperationException();
         source.Append(indent).Append("if (!").Append(input).Append(".").Append(method)
             .Append("(out var scalar)) { error = global::Devolutions.PowerShell.Ffi.PowerShellDtoProjection.InvalidValue(")
             .Append(path).Append(", \"The DTO member has an invalid tagged value kind.\"); result = default; return false; }").AppendLine();
+
+        if (kind.IsEnum)
+        {
+            source.Append(indent).AppendLine("try");
+            source.Append(indent).AppendLine("{");
+            source.Append(indent).Append("    var converted = (").Append(kind.ValueTypeName).Append(")checked((")
+                .Append(kind.ConversionTypeName).AppendLine(")scalar);");
+            source.Append(indent).Append("    if (!global::System.Enum.IsDefined(typeof(").Append(kind.ValueTypeName)
+                .AppendLine("), converted))");
+            source.Append(indent).AppendLine("    {");
+            source.Append(indent).Append("        error = global::Devolutions.PowerShell.Ffi.PowerShellDtoProjection.InvalidValue(")
+                .Append(path).AppendLine(", \"The DTO enum member has an undefined value.\");");
+            source.Append(indent).AppendLine("        result = default;");
+            source.Append(indent).AppendLine("        return false;");
+            source.Append(indent).AppendLine("    }");
+            source.Append(indent).Append("    ").Append(output).AppendLine(" = converted;");
+            source.Append(indent).AppendLine("}");
+            source.Append(indent).AppendLine("catch (global::System.OverflowException)");
+            source.Append(indent).AppendLine("{");
+            EmitInvalidRange(source, path, indent + "    ");
+            source.Append(indent).AppendLine("}");
+            return;
+        }
+
+        if (kind.RequiresCheckedConversion)
+        {
+            source.Append(indent).AppendLine("try");
+            source.Append(indent).AppendLine("{");
+            source.Append(indent).Append("    ").Append(output).Append(" = checked((")
+                .Append(kind.ValueTypeName).AppendLine(")scalar);");
+            source.Append(indent).AppendLine("}");
+            source.Append(indent).AppendLine("catch (global::System.OverflowException)");
+            source.Append(indent).AppendLine("{");
+            EmitInvalidRange(source, path, indent + "    ");
+            source.Append(indent).AppendLine("}");
+            return;
+        }
+
         source.Append(indent).Append(output).AppendLine(" = scalar!;");
+    }
+
+    private static void EmitInvalidRange(StringBuilder source, string path, string indent)
+    {
+        source.Append(indent).Append("error = global::Devolutions.PowerShell.Ffi.PowerShellDtoProjection.InvalidValue(")
+            .Append(path).AppendLine(", \"The DTO integer member is outside its declared range.\");");
+        source.Append(indent).AppendLine("result = default;");
+        source.Append(indent).AppendLine("return false;");
     }
 
     private static string WriteExpression(string value, MemberInfo member)
     {
         if (member.Kind.IsArray)
         {
+            string itemExpression = member.Kind.Element!.IsDto
+                ? NestedWriterName(member) + "(item)"
+                : WriteScalarExpression("item", member.Kind.Element);
             return "global::Devolutions.PowerShell.Ffi.PowerShellValue.Array(global::System.Linq.Enumerable.Select(" + value + ", static item => " +
-                   WriteScalarExpression("item", member.Kind.Element!, member.MaximumStringLength) + "))";
+                   itemExpression + "))";
         }
 
-        return WriteScalarExpression(value, member.Kind, member.MaximumStringLength);
+        return member.Kind.IsDto
+            ? NestedWriterName(member) + "(" + value + ")"
+            : WriteScalarExpression(value, member.Kind);
     }
 
-    private static string WriteScalarExpression(string value, ProjectionKind kind, int maximumStringLength)
+    private static string WriteScalarExpression(string value, ProjectionKind kind)
     {
-        string method = ReferenceEquals(kind, ProjectionKind.String) ? "String"
-            : ReferenceEquals(kind, ProjectionKind.Boolean) ? "Boolean"
-            : ReferenceEquals(kind, ProjectionKind.SignedInteger) ? "SignedInteger"
-            : ReferenceEquals(kind, ProjectionKind.UnsignedInteger) ? "UnsignedInteger"
-            : ReferenceEquals(kind, ProjectionKind.Double) ? "Double"
-            : ReferenceEquals(kind, ProjectionKind.Decimal) ? "Decimal"
-            : ReferenceEquals(kind, ProjectionKind.DateTime) ? "DateTime"
-            : ReferenceEquals(kind, ProjectionKind.DateTimeOffset) ? "DateTimeOffset"
-            : ReferenceEquals(kind, ProjectionKind.Guid) ? "Guid"
-            : ReferenceEquals(kind, ProjectionKind.Uri) ? "Uri"
+        if (kind.IsNullable)
+        {
+            string present = kind.IsValueType ? value + ".Value" : value;
+            return value + " is null ? global::Devolutions.PowerShell.Ffi.PowerShellValue.Null : " +
+                   WriteScalarExpression(present, kind.WithoutNullable());
+        }
+
+        string method = kind.Name == "String" ? "String"
+            : kind.Name == "Boolean" ? "Boolean"
+            : kind.Name == "SignedInteger" ? "SignedInteger"
+            : kind.Name == "UnsignedInteger" ? "UnsignedInteger"
+            : kind.Name == "Double" ? "Double"
+            : kind.Name == "Decimal" ? "Decimal"
+            : kind.Name == "DateTime" ? "DateTime"
+            : kind.Name == "DateTimeOffset" ? "DateTimeOffset"
+            : kind.Name == "TimeSpan" ? "TimeSpan"
+            : kind.Name == "Guid" ? "Guid"
+            : kind.Name == "Uri" ? "Uri"
             : throw new InvalidOperationException();
-        return "global::Devolutions.PowerShell.Ffi.PowerShellValue." + method + "(" + value + ")";
+        string converted = kind.IsEnum
+            ? "(" + (kind.IsSignedInteger ? "long" : "ulong") + ")(" + kind.ConversionTypeName + ")" + value
+            : kind.RequiresCheckedConversion || kind.IsInteger
+                ? "(" + (kind.IsSignedInteger ? "long" : "ulong") + ")" + value
+                : value;
+        return "global::Devolutions.PowerShell.Ffi.PowerShellValue." + method + "(" + converted + ")";
     }
+
+    private static void EmitNestedWriter(StringBuilder source, MemberInfo member, ProjectionKind nested)
+    {
+        source.AppendLine();
+        source.Append("    private static global::Devolutions.PowerShell.Ffi.PowerShellValue ")
+            .Append(NestedWriterName(member)).Append("(").Append(nested.DeclaredTypeName).AppendLine(" value)");
+        source.AppendLine("    {");
+        source.AppendLine("        try");
+        source.AppendLine("        {");
+        source.Append("            return ").Append(nested.DtoProjectionTypeName).AppendLine(".Write(value);");
+        source.AppendLine("        }");
+        source.AppendLine("        catch (global::Devolutions.PowerShell.Ffi.PowerShellDtoProjectionException exception)");
+        source.AppendLine("        {");
+        source.Append("            string path = global::System.String.IsNullOrEmpty(exception.Error.Path) ? ")
+            .Append(Literal(member.WireName))
+            .Append(" : global::Devolutions.PowerShell.Ffi.PowerShellDtoProjection.JoinPath(")
+            .Append(Literal(member.WireName)).AppendLine(", exception.Error.Path);");
+        source.AppendLine("            var error = exception.Error.Failure == global::Devolutions.PowerShell.Ffi.PowerShellDtoProjectionFailure.ValueTooLarge");
+        source.AppendLine("                ? global::Devolutions.PowerShell.Ffi.PowerShellDtoProjection.ValueTooLarge(path, exception.Error.Message)");
+        source.AppendLine("                : global::Devolutions.PowerShell.Ffi.PowerShellDtoProjection.InvalidValue(path, exception.Error.Message);");
+        source.AppendLine("            throw global::Devolutions.PowerShell.Ffi.PowerShellDtoProjection.CreateException(error);");
+        source.AppendLine("        }");
+        source.AppendLine("    }");
+    }
+
+    private static string NestedWriterName(MemberInfo member) => "WriteNested_" + member.PropertyName;
 
     private static ProjectionKind GetProjectionKind(ITypeSymbol type)
     {
@@ -341,27 +571,118 @@ public sealed class DtoContractGenerator : IIncrementalGenerator
             ProjectionKind element = GetProjectionKind(array.ElementType);
             return element.IsArray || element == ProjectionKind.Unsupported
                 ? ProjectionKind.Unsupported
-                : ProjectionKind.Array(element);
+                : ProjectionKind.Array(
+                    element,
+                    type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat));
         }
 
-        return type.SpecialType switch
+        bool isNullable = false;
+        bool isValueType = type.IsValueType;
+        ITypeSymbol valueType = type;
+        if (type is INamedTypeSymbol nullable &&
+            nullable.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T)
         {
-            SpecialType.System_String => ProjectionKind.String,
-            SpecialType.System_Boolean => ProjectionKind.Boolean,
-            SpecialType.System_Int64 => ProjectionKind.SignedInteger,
-            SpecialType.System_UInt64 => ProjectionKind.UnsignedInteger,
-            SpecialType.System_Double => ProjectionKind.Double,
-            SpecialType.System_Decimal => ProjectionKind.Decimal,
-            _ => type.ToDisplayString() switch
+            valueType = nullable.TypeArguments[0];
+            isNullable = true;
+            isValueType = true;
+        }
+        else if (type.IsReferenceType && type.NullableAnnotation == NullableAnnotation.Annotated)
+        {
+            isNullable = true;
+            isValueType = false;
+        }
+
+        if (valueType is INamedTypeSymbol enumType && enumType.TypeKind == TypeKind.Enum)
+        {
+            if (HasAttribute(enumType, "System.FlagsAttribute") || enumType.EnumUnderlyingType is null)
             {
-                "System.DateTime" => ProjectionKind.DateTime,
-                "System.DateTimeOffset" => ProjectionKind.DateTimeOffset,
-                "System.Guid" => ProjectionKind.Guid,
-                "System.Uri" => ProjectionKind.Uri,
+                return ProjectionKind.Unsupported;
+            }
+
+            bool signed = IsSignedInteger(enumType.EnumUnderlyingType.SpecialType);
+            if (!signed && !IsUnsignedInteger(enumType.EnumUnderlyingType.SpecialType))
+            {
+                return ProjectionKind.Unsupported;
+            }
+
+            return ProjectionKind.Enum(
+                valueType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+                enumType.EnumUnderlyingType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+                signed,
+                isNullable);
+        }
+
+        if (valueType is INamedTypeSymbol dto && HasAttribute(dto, ContractAttribute))
+        {
+            if (isNullable)
+            {
+                return ProjectionKind.Unsupported;
+            }
+
+            string dtoNamespace = dto.ContainingNamespace.IsGlobalNamespace
+                ? "global::"
+                : "global::" + dto.ContainingNamespace.ToDisplayString() + ".";
+            return ProjectionKind.Dto(
+                valueType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+                dtoNamespace + dto.Name + "PowerShellDtoProjection");
+        }
+
+        string valueTypeDisplay = valueType
+            .WithNullableAnnotation(NullableAnnotation.NotAnnotated)
+            .ToDisplayString();
+        ProjectionKind kind = valueType.SpecialType switch
+        {
+            SpecialType.System_String => ProjectionKind.Scalar("String", "string", false),
+            SpecialType.System_Boolean => ProjectionKind.Scalar("Boolean", "bool", true),
+            SpecialType.System_SByte => ProjectionKind.Integer("sbyte", true, true),
+            SpecialType.System_Int16 => ProjectionKind.Integer("short", true, true),
+            SpecialType.System_Int32 => ProjectionKind.Integer("int", true, true),
+            SpecialType.System_Int64 => ProjectionKind.Integer("long", true, false),
+            SpecialType.System_Byte => ProjectionKind.Integer("byte", false, true),
+            SpecialType.System_UInt16 => ProjectionKind.Integer("ushort", false, true),
+            SpecialType.System_UInt32 => ProjectionKind.Integer("uint", false, true),
+            SpecialType.System_UInt64 => ProjectionKind.Integer("ulong", false, false),
+            SpecialType.System_Double => ProjectionKind.Scalar("Double", "double", true),
+            SpecialType.System_Decimal => ProjectionKind.Scalar("Decimal", "decimal", true),
+            _ => valueTypeDisplay switch
+            {
+                "System.DateTime" => ProjectionKind.Scalar("DateTime", "global::System.DateTime", true),
+                "System.DateTimeOffset" => ProjectionKind.Scalar("DateTimeOffset", "global::System.DateTimeOffset", true),
+                "System.TimeSpan" => ProjectionKind.Scalar("TimeSpan", "global::System.TimeSpan", true),
+                "System.Guid" => ProjectionKind.Scalar("Guid", "global::System.Guid", true),
+                "System.Uri" => ProjectionKind.Scalar("Uri", "global::System.Uri", false),
                 _ => ProjectionKind.Unsupported,
             },
         };
+        return kind == ProjectionKind.Unsupported
+            ? kind
+            : kind.WithNullable(isNullable, isValueType);
     }
+
+    private static bool IsFlagsEnum(ITypeSymbol type)
+    {
+        if (type is INamedTypeSymbol nullable &&
+            nullable.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T)
+        {
+            type = nullable.TypeArguments[0];
+        }
+
+        return type is INamedTypeSymbol enumType &&
+            enumType.TypeKind == TypeKind.Enum &&
+            HasAttribute(enumType, "System.FlagsAttribute");
+    }
+
+    private static bool IsSignedInteger(SpecialType type) =>
+        type == SpecialType.System_SByte ||
+        type == SpecialType.System_Int16 ||
+        type == SpecialType.System_Int32 ||
+        type == SpecialType.System_Int64;
+
+    private static bool IsUnsignedInteger(SpecialType type) =>
+        type == SpecialType.System_Byte ||
+        type == SpecialType.System_UInt16 ||
+        type == SpecialType.System_UInt32 ||
+        type == SpecialType.System_UInt64;
 
     private static bool HasAttribute(ISymbol symbol, string metadataName) => GetAttribute(symbol, metadataName) is not null;
 
@@ -446,42 +767,124 @@ public sealed class DtoContractGenerator : IIncrementalGenerator
 
     private sealed class ProjectionKind
     {
-        private ProjectionKind(string name, ProjectionKind? element = null)
+        private ProjectionKind(
+            string name,
+            string declaredTypeName,
+            string valueTypeName,
+            bool isValueType,
+            bool isNullable = false,
+            bool requiresCheckedConversion = false,
+            bool isEnum = false,
+            string? conversionTypeName = null,
+            string? dtoProjectionTypeName = null,
+            ProjectionKind? element = null)
         {
             Name = name;
+            DeclaredTypeName = declaredTypeName;
+            ValueTypeName = valueTypeName;
+            IsValueType = isValueType;
+            IsNullable = isNullable;
+            RequiresCheckedConversion = requiresCheckedConversion;
+            IsEnum = isEnum;
+            ConversionTypeName = conversionTypeName;
+            DtoProjectionTypeName = dtoProjectionTypeName;
             Element = element;
         }
 
-        public static ProjectionKind Unsupported { get; } = new("Unsupported");
-        public static ProjectionKind String { get; } = new("String");
-        public static ProjectionKind Boolean { get; } = new("Boolean");
-        public static ProjectionKind SignedInteger { get; } = new("SignedInteger");
-        public static ProjectionKind UnsignedInteger { get; } = new("UnsignedInteger");
-        public static ProjectionKind Double { get; } = new("Double");
-        public static ProjectionKind Decimal { get; } = new("Decimal");
-        public static ProjectionKind DateTime { get; } = new("DateTime");
-        public static ProjectionKind DateTimeOffset { get; } = new("DateTimeOffset");
-        public static ProjectionKind Guid { get; } = new("Guid");
-        public static ProjectionKind Uri { get; } = new("Uri");
+        public static ProjectionKind Unsupported { get; } = new(
+            "Unsupported",
+            string.Empty,
+            string.Empty,
+            false);
 
         public string Name { get; }
+        public string DeclaredTypeName { get; }
+        public string ValueTypeName { get; }
+        public bool IsValueType { get; }
+        public bool IsNullable { get; }
+        public bool RequiresCheckedConversion { get; }
+        public bool IsEnum { get; }
+        public string? ConversionTypeName { get; }
+        public string? DtoProjectionTypeName { get; }
         public ProjectionKind? Element { get; }
         public bool IsArray => Element is not null;
-        public string? ElementName => Element?.Name switch
-        {
-            "String" => "string",
-            "Boolean" => "bool",
-            "SignedInteger" => "long",
-            "UnsignedInteger" => "ulong",
-            "Double" => "double",
-            "Decimal" => "decimal",
-            "DateTime" => "global::System.DateTime",
-            "DateTimeOffset" => "global::System.DateTimeOffset",
-            "Guid" => "global::System.Guid",
-            "Uri" => "global::System.Uri",
-            _ => null,
-        };
+        public bool IsString => Name == "String";
+        public bool IsDto => DtoProjectionTypeName is not null;
+        public bool IsSignedInteger => Name == "SignedInteger";
+        public bool IsInteger => IsSignedInteger || Name == "UnsignedInteger";
 
-        public static ProjectionKind Array(ProjectionKind element) => new("Array", element);
+        public ProjectionKind WithNullable(bool isNullable, bool isValueType)
+        {
+            if (!isNullable)
+            {
+                return this;
+            }
+
+            return new ProjectionKind(
+                Name,
+                DeclaredTypeName + (isValueType ? "?" : string.Empty),
+                ValueTypeName,
+                isValueType,
+                true,
+                RequiresCheckedConversion,
+                IsEnum,
+                ConversionTypeName,
+                DtoProjectionTypeName,
+                Element);
+        }
+
+        public ProjectionKind WithoutNullable()
+        {
+            return IsNullable
+                ? new ProjectionKind(
+                    Name,
+                    ValueTypeName,
+                    ValueTypeName,
+                    IsValueType,
+                    false,
+                    RequiresCheckedConversion,
+                    IsEnum,
+                    ConversionTypeName,
+                    DtoProjectionTypeName,
+                    Element)
+                : this;
+        }
+
+        public static ProjectionKind Scalar(string name, string typeName, bool isValueType) =>
+            new(name, typeName, typeName, isValueType);
+
+        public static ProjectionKind Integer(string typeName, bool signed, bool requiresCheckedConversion) =>
+            new(
+                signed ? "SignedInteger" : "UnsignedInteger",
+                typeName,
+                typeName,
+                true,
+                requiresCheckedConversion: requiresCheckedConversion);
+
+        public static ProjectionKind Enum(
+            string typeName,
+            string underlyingTypeName,
+            bool signed,
+            bool isNullable) =>
+            new(
+                signed ? "SignedInteger" : "UnsignedInteger",
+                typeName + (isNullable ? "?" : string.Empty),
+                typeName,
+                true,
+                isNullable,
+                true,
+                true,
+                underlyingTypeName);
+
+        public static ProjectionKind Dto(string typeName, string projectionTypeName) =>
+            new(
+                "Dto",
+                typeName,
+                typeName,
+                false,
+                dtoProjectionTypeName: projectionTypeName);
+
+        public static ProjectionKind Array(ProjectionKind element, string typeName) =>
+            new("Array", typeName, typeName, false, element: element);
     }
 }

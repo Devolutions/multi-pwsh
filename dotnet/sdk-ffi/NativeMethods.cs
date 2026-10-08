@@ -215,6 +215,10 @@ internal struct NativeRuntimeDiagnosticsInfo
     internal uint PowerShellFileVersionAvailable;
     internal uint ContractPackCount;
     internal uint Reserved;
+    internal uint RemoteProviderStatus;
+    internal uint RemoteProviderUnavailableReason;
+    internal uint Reserved2;
+    internal ulong RemoteProviderCapabilities;
 }
 
 internal static unsafe partial class NativeMethods
