@@ -80,10 +80,13 @@ if (SixtyThreeMemberDtoPowerShellDtoProjection.Write(new SixtyThreeMemberDto()).
 
 VerifyCheckedNarrowIntegerBoundaries();
 VerifyNullableSupportedScalars();
+VerifyNullableArrayElements();
 VerifyNonFlagsEnumsWithExplicitUnderlyingConversions();
 VerifyTimeSpanProjection();
 VerifyBoundedNestedDtoProjection();
 VerifyNestedDtoGeneratorDiagnostics();
+VerifyNestedFailureCategories();
+VerifyTaggedValueDepthBoundaries();
 
 VerifyGeneratorDiagnostic(
     """
@@ -381,6 +384,72 @@ static void VerifyNonFlagsEnumsWithExplicitUnderlyingConversions()
         nameof(EnumDto.Unsigned));
 }
 
+static void VerifyNullableArrayElements()
+{
+    var expected = new NullableArrayDto
+    {
+        Numbers = [null, int.MinValue, null, int.MaxValue],
+        Durations = [TimeSpan.MinValue, null, TimeSpan.MaxValue],
+        Labels = [null, "four", string.Empty],
+        States = [SignedState.Negative, null, SignedState.Positive],
+    };
+    PowerShellValue wire = NullableArrayDtoPowerShellDtoProjection.Write(expected);
+    NullableArrayDto actual = NullableArrayDtoPowerShellDtoProjection.Read(wire);
+    if (!actual.Numbers.SequenceEqual(expected.Numbers) ||
+        !actual.Durations.SequenceEqual(expected.Durations) ||
+        !actual.Labels.SequenceEqual(expected.Labels) ||
+        !actual.States.SequenceEqual(expected.States) ||
+        !wire.GetPropertyBag()[nameof(NullableArrayDto.Numbers)].GetArray()[0].IsNull ||
+        !wire.GetPropertyBag()[nameof(NullableArrayDto.Durations)].GetArray()[1].IsNull)
+    {
+        throw new InvalidOperationException("Nullable scalar array elements did not preserve nulls and populated values.");
+    }
+
+    NullableArrayDto empty = NullableArrayDtoPowerShellDtoProjection.Read(
+        NullableArrayDtoPowerShellDtoProjection.Write(new NullableArrayDto()));
+    if (empty.Numbers.Length != 0 || empty.Durations.Length != 0 ||
+        empty.Labels.Length != 0 || empty.States.Length != 0)
+    {
+        throw new InvalidOperationException("Nullable scalar arrays did not preserve empty collections.");
+    }
+
+    (string Member, PowerShellValue Invalid)[] invalidElements =
+    [
+        (nameof(NullableArrayDto.Numbers), PowerShellValue.String("wrong")),
+        (nameof(NullableArrayDto.Numbers), PowerShellValue.SignedInteger((long)int.MaxValue + 1)),
+        (nameof(NullableArrayDto.Durations), PowerShellValue.SignedInteger(1)),
+        (nameof(NullableArrayDto.States), PowerShellValue.SignedInteger(-1)),
+    ];
+    foreach ((string member, PowerShellValue invalid) in invalidElements)
+    {
+        PowerShellValue invalidWire = ReplaceProperty(wire, member, PowerShellValue.Array([PowerShellValue.Null, invalid]));
+        if (NullableArrayDtoPowerShellDtoProjection.TryRead(invalidWire, out _, out var error) ||
+            error?.Failure != PowerShellDtoProjectionFailure.InvalidValue ||
+            error.Path != member)
+        {
+            throw new InvalidOperationException($"Nullable array {member} accepted an invalid populated element.");
+        }
+    }
+
+    ExpectValueTooLarge(
+        () => NullableArrayDtoPowerShellDtoProjection.Write(new NullableArrayDto { Labels = [null, "fives"] }),
+        "Nullable string arrays did not enforce populated element bounds.");
+    if (NullableArrayDtoPowerShellDtoProjection.TryRead(
+        ReplaceProperty(wire, nameof(NullableArrayDto.Labels), PowerShellValue.Array([PowerShellValue.Null, PowerShellValue.String("fives")])),
+        out _, out var oversizedError) ||
+        oversizedError?.Failure != PowerShellDtoProjectionFailure.ValueTooLarge)
+    {
+        throw new InvalidOperationException("Nullable string array reads did not enforce populated element bounds.");
+    }
+    if (SampleDtoPowerShellDtoProjection.TryRead(
+        ReplaceProperty(SampleDtoPowerShellDtoProjection.Write(new SampleDto()), nameof(SampleDto.Identifiers), PowerShellValue.Array([PowerShellValue.Null])),
+        out _, out var nonNullableError) ||
+        nonNullableError?.Failure != PowerShellDtoProjectionFailure.InvalidValue)
+    {
+        throw new InvalidOperationException("Non-nullable scalar arrays accepted a null element.");
+    }
+}
+
 static void VerifyTimeSpanProjection()
 {
     var expected = new TimeSpanDto
@@ -500,9 +569,85 @@ static void VerifyBoundedNestedDtoProjection()
                 new(nameof(ParentDto.Child), PowerShellValue.SignedInteger(1)),
                 new(nameof(ParentDto.Children), PowerShellValue.Array([])),
             ]),
-        PowerShellDtoProjectionFailure.InvalidValue,
+        PowerShellDtoProjectionFailure.InvalidRoot,
         nameof(ParentDto.Child),
         "Generated DTO projection accepted a non-property-bag nested DTO.");
+}
+
+static void VerifyNestedFailureCategories()
+{
+    PowerShellValue child = ChildDtoPowerShellDtoProjection.Write(new ChildDto { Label = "root", Count = 1 });
+    (PowerShellValue Value, PowerShellDtoProjectionFailure Failure, string Path, string Message)[] cases =
+    [
+        (PowerShellValue.Boolean(true), PowerShellDtoProjectionFailure.InvalidRoot, "", "Expected a copied property bag."),
+        (PowerShellValue.PropertyBag(child.GetPropertyBag().Where(property => property.Key != nameof(ChildDto.Count))),
+            PowerShellDtoProjectionFailure.MissingMember, "Count", "The required DTO member is missing."),
+        (PowerShellValue.PropertyBag(child.GetPropertyBag().Append(new("extra", PowerShellValue.Boolean(true)))),
+            PowerShellDtoProjectionFailure.UnknownMember, "", "The DTO contains an undeclared member."),
+        (ReplaceProperty(child, "$version", PowerShellValue.UnsignedInteger(2)),
+            PowerShellDtoProjectionFailure.InvalidVersion, "", "The DTO version is missing or incompatible."),
+        (ReplaceProperty(child, nameof(ChildDto.Count), PowerShellValue.String("wrong")),
+            PowerShellDtoProjectionFailure.InvalidValue, "Count", "The DTO member has an invalid tagged value kind."),
+        (ReplaceProperty(child, nameof(ChildDto.Label), PowerShellValue.String("fives")),
+            PowerShellDtoProjectionFailure.ValueTooLarge, "Label", "The DTO string member has an invalid kind or exceeds its bound."),
+    ];
+    foreach (var item in cases)
+    {
+        foreach (bool inArray in new[] { false, true })
+        {
+            string prefix = inArray ? nameof(ParentDto.Children) : nameof(ParentDto.Child);
+            PowerShellValue parent = PowerShellDtoProjection.CreatePropertyBag(
+                1,
+                [
+                    new(nameof(ParentDto.Child), inArray ? child : item.Value),
+                    new(nameof(ParentDto.Children), PowerShellValue.Array(inArray ? [item.Value] : [])),
+                ]);
+            string expectedPath = item.Path.Length == 0 ? prefix : $"{prefix}.{item.Path}";
+            if (ParentDtoPowerShellDtoProjection.TryRead(parent, out _, out var error) ||
+                error?.Failure != item.Failure || error.Path != expectedPath || error.Message != item.Message)
+            {
+                throw new InvalidOperationException($"Nested {prefix} read lost {item.Failure}, its path, or its message.");
+            }
+        }
+    }
+}
+
+static void VerifyTaggedValueDepthBoundaries()
+{
+    var expected = new DepthBoundaryRoot
+    {
+        Children = [new DepthBoundaryMiddle
+        {
+            Children = [new DepthBoundaryBranch
+            {
+                Children = [new DepthBoundaryLeaf { Values = [int.MinValue, int.MaxValue] }],
+            }],
+        }],
+    };
+    DepthBoundaryRoot actual = DepthBoundaryRootPowerShellDtoProjection.Read(
+        DepthBoundaryRootPowerShellDtoProjection.Write(expected));
+    if (!actual.Children.Single().Children.Single().Children.Single().Values.SequenceEqual([int.MinValue, int.MaxValue]))
+    {
+        throw new InvalidOperationException("The eight-level tagged-value boundary did not round-trip.");
+    }
+
+    foreach ((int edges, bool dtoArrays, bool scalarArray) in new[] { (4, true, false), (7, false, true), (8, false, false) })
+    {
+        var source = new System.Text.StringBuilder("using Devolutions.PowerShell.Ffi;");
+        for (int index = 0; index <= edges; index++)
+        {
+            string type = index == edges ? (scalarArray ? "int[]" : "int") : $"BoundaryDto{index + 1}" + (dtoArrays ? "[]" : "");
+            string initializer = type == "int" ? "" : " = null!;";
+            source.AppendLine($$"""
+                [PowerShellDtoContract(1)]
+                public sealed class BoundaryDto{{index}}
+                {
+                    [PowerShellDtoMember] public {{type}} Value { get; set; }{{initializer}}
+                }
+                """);
+        }
+        VerifyGeneratorDiagnostic(source.ToString(), "MPWDTO001", "an over-depth tagged DTO graph", "depth");
+    }
 }
 
 static void VerifyNestedDtoGeneratorDiagnostics()
@@ -732,6 +877,39 @@ public sealed class NullableScalarDto
     [PowerShellDtoMember] public Uri? Uri { get; set; }
     [PowerShellDtoMember] public TimeSpan? Duration { get; set; }
     [PowerShellDtoMember] public SignedState? State { get; set; }
+}
+
+[PowerShellDtoContract(1)]
+public sealed class NullableArrayDto
+{
+    [PowerShellDtoMember] public int?[] Numbers { get; set; } = [];
+    [PowerShellDtoMember] public TimeSpan?[] Durations { get; set; } = [];
+    [PowerShellDtoMember(MaximumStringLength = 4)] public string?[] Labels { get; set; } = [];
+    [PowerShellDtoMember] public SignedState?[] States { get; set; } = [];
+}
+
+[PowerShellDtoContract(1)]
+public sealed class DepthBoundaryRoot
+{
+    [PowerShellDtoMember] public DepthBoundaryMiddle[] Children { get; set; } = [];
+}
+
+[PowerShellDtoContract(1)]
+public sealed class DepthBoundaryMiddle
+{
+    [PowerShellDtoMember] public DepthBoundaryBranch[] Children { get; set; } = [];
+}
+
+[PowerShellDtoContract(1)]
+public sealed class DepthBoundaryBranch
+{
+    [PowerShellDtoMember] public DepthBoundaryLeaf[] Children { get; set; } = [];
+}
+
+[PowerShellDtoContract(1)]
+public sealed class DepthBoundaryLeaf
+{
+    [PowerShellDtoMember] public int[] Values { get; set; } = [];
 }
 
 [PowerShellDtoContract(1)]

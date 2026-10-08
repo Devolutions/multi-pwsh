@@ -9,7 +9,7 @@ namespace Devolutions.PowerShell.Ffi;
 /// </summary>
 public static class PowerShellSnapshotSerializer
 {
-    public const int FormatVersion = 1;
+    public const int FormatVersion = 2;
     public const int MaxDocumentBytes = 1024 * 1024;
 
     /// <summary>Serializes a snapshot to deterministic UTF-8 JSON for storage or display only.</summary>
@@ -51,12 +51,12 @@ public static class PowerShellSnapshotSerializer
             throw new ArgumentException("The snapshot document is not valid versioned snapshot JSON.", nameof(document), exception);
         }
 
-        if (dto is null || dto.Version != FormatVersion || dto.Result is null)
+        if (dto is null || dto.Version is not (1 or FormatVersion) || dto.Result is null)
         {
             throw new ArgumentException("The snapshot document has an unsupported version or missing result.", nameof(document));
         }
 
-        return FromDto(dto.Result);
+        return FromDto(dto.Result, dto.Version);
     }
 
     private static SnapshotDocumentDto ToDto(PowerShellInvocationResult result)
@@ -187,7 +187,7 @@ public static class PowerShellSnapshotSerializer
         };
     }
 
-    private static PowerShellInvocationResult FromDto(InvocationResultDto result)
+    private static PowerShellInvocationResult FromDto(InvocationResultDto result, int formatVersion)
     {
         if (!Enum.IsDefined((PowerShellInvocationState)result.State)
             || result.Output is null
@@ -210,8 +210,8 @@ public static class PowerShellSnapshotSerializer
         if (sequence.Count > 224) throw InvalidDocument();
 
         return new PowerShellInvocationResult(
-            FromObjectStream(result.Output),
-            FromErrorStream(result.Errors),
+            FromObjectStream(result.Output, formatVersion),
+            FromErrorStream(result.Errors, formatVersion),
             FromTextStream(result.Warnings, PowerShellStreamKind.Warning),
             FromTextStream(result.Verbose, PowerShellStreamKind.Verbose),
             FromTextStream(result.Debug, PowerShellStreamKind.Debug),
@@ -225,7 +225,7 @@ public static class PowerShellSnapshotSerializer
             result.IsSequenceTruncated);
     }
 
-    private static PowerShellStreamSnapshot<PowerShellObjectSnapshot> FromObjectStream(ObjectStreamDto stream)
+    private static PowerShellStreamSnapshot<PowerShellObjectSnapshot> FromObjectStream(ObjectStreamDto stream, int formatVersion)
     {
         List<ObjectDto> records = RequireRecords(stream.Records, stream.TotalRecordCount, stream.DroppedRecordCount);
         return new PowerShellStreamSnapshot<PowerShellObjectSnapshot>(
@@ -235,8 +235,8 @@ public static class PowerShellSnapshotSerializer
                 string displayText = Require(item.DisplayText);
                 List<string> typeNames = item.TypeNames ?? throw InvalidDocument();
                 if (typeNames.Count > 8 || item.TypeNameCount < typeNames.Count) throw InvalidDocument();
-                PowerShellValue? scalarValue = FromDto(item.ScalarValue);
-                PowerShellValue? propertyBag = FromDto(item.PropertyBag);
+                PowerShellValue? scalarValue = FromDto(item.ScalarValue, formatVersion);
+                PowerShellValue? propertyBag = FromDto(item.PropertyBag, formatVersion);
                 if ((scalarValue is not null && !scalarValue.IsSnapshotScalar)
                     || (propertyBag is not null && !propertyBag.IsSnapshotPropertyBag)
                     || item.PropertyEntryCount > 16
@@ -262,21 +262,26 @@ public static class PowerShellSnapshotSerializer
             stream.DroppedRecordCount);
     }
 
-    private static PowerShellStreamSnapshot<PowerShellInvocationError> FromErrorStream(ErrorStreamDto stream)
+    private static PowerShellStreamSnapshot<PowerShellInvocationError> FromErrorStream(ErrorStreamDto stream, int formatVersion)
     {
         List<ErrorDto> records = RequireRecords(stream.Records, stream.TotalRecordCount, stream.DroppedRecordCount);
         return new PowerShellStreamSnapshot<PowerShellInvocationError>(
             PowerShellStreamKind.Error,
             records.Select(item =>
             {
-                PowerShellValue? targetValue = FromDto(item.TargetValue);
+                if ((formatVersion == FormatVersion && item.ExceptionHResult is null) ||
+                    (formatVersion == 1 && item.HasExceptionHResult))
+                {
+                    throw InvalidDocument();
+                }
+                PowerShellValue? targetValue = FromDto(item.TargetValue, formatVersion);
                 if (targetValue is not null && !targetValue.IsSnapshotScalar) throw InvalidDocument();
                 return new PowerShellInvocationError(
                     Require(item.Message),
                     Require(item.FullyQualifiedErrorId),
                     Require(item.Category),
                     Require(item.ExceptionType),
-                    item.ExceptionHResult,
+                    item.ExceptionHResult ?? 0,
                     Require(item.InvocationName),
                     Require(item.PositionMessage),
                     Require(item.ScriptStackTrace),
@@ -312,14 +317,22 @@ public static class PowerShellSnapshotSerializer
             stream.DroppedRecordCount);
     }
 
-    private static PowerShellValue? FromDto(ValueDto? value)
+    private static PowerShellValue? FromDto(ValueDto? value, int formatVersion)
     {
         if (value is null) return null;
         try
         {
             byte[] payload = Convert.FromBase64String(Require(value.Payload));
             if (payload.Length > 16 * 1024) throw InvalidDocument();
-            return PowerShellValue.FromNative(value.Kind, payload);
+            PowerShellValue copied = PowerShellValue.FromNative(value.Kind, payload);
+            if (formatVersion == 1 &&
+                (copied.Kind == PowerShellValueKind.TimeSpan ||
+                 (copied.Kind == PowerShellValueKind.PropertyBag &&
+                  copied.GetPropertyBag().Values.Any(item => item.Kind == PowerShellValueKind.TimeSpan))))
+            {
+                throw InvalidDocument();
+            }
+            return copied;
         }
         catch (FormatException)
         {
@@ -430,11 +443,24 @@ internal sealed class ObjectDto
 
 internal sealed class ErrorDto
 {
+    private int? exceptionHResult;
+
     [JsonRequired, JsonPropertyOrder(0)] public string? Message { get; set; }
     [JsonRequired, JsonPropertyOrder(1)] public string? FullyQualifiedErrorId { get; set; }
     [JsonRequired, JsonPropertyOrder(2)] public string? Category { get; set; }
     [JsonRequired, JsonPropertyOrder(3)] public string? ExceptionType { get; set; }
-    [JsonPropertyOrder(4)] public int ExceptionHResult { get; set; }
+    [JsonPropertyOrder(4)]
+    public int? ExceptionHResult
+    {
+        get => exceptionHResult;
+        set
+        {
+            exceptionHResult = value;
+            HasExceptionHResult = true;
+        }
+    }
+
+    [JsonIgnore] public bool HasExceptionHResult { get; private set; }
     [JsonRequired, JsonPropertyOrder(5)] public string? InvocationName { get; set; }
     [JsonRequired, JsonPropertyOrder(6)] public string? PositionMessage { get; set; }
     [JsonRequired, JsonPropertyOrder(7)] public string? ScriptStackTrace { get; set; }

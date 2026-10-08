@@ -219,7 +219,13 @@ public sealed class PowerShellRemoteSessionPoolOptions
         uint maximumRunspaces = 1)
     {
         ArgumentNullException.ThrowIfNull(connection);
-        if (minimumRunspaces < 1 || maximumRunspaces < minimumRunspaces || maximumRunspaces > 64)
+        if (minimumRunspaces is < 1 or > 64)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(minimumRunspaces),
+                "Remote runspace pools require a minimum of 1 to 64 runspaces.");
+        }
+        if (maximumRunspaces < minimumRunspaces || maximumRunspaces > 64)
         {
             throw new ArgumentOutOfRangeException(
                 nameof(maximumRunspaces),

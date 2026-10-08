@@ -500,11 +500,21 @@ void VerifyCopiedExceptionHResultAndSnapshotSerialization(
     Require(
         Encoding.UTF8.GetString(serialized).Contains(
             "\"exceptionHResult\":-2128394905",
-            StringComparison.Ordinal),
-        "Snapshot JSON did not expose the copied exception HResult.");
+            StringComparison.Ordinal) &&
+        Encoding.UTF8.GetString(serialized).StartsWith("{\"version\":2,", StringComparison.Ordinal),
+        "Snapshot JSON did not expose the copied exception HResult in format v2.");
     Require(
         restoredResult.Errors.Records.Single().ExceptionHResult == ExpectedHResult,
         "Snapshot deserialization did not restore the copied exception HResult.");
+    string legacyJson = Encoding.UTF8.GetString(serialized)
+        .Replace("\"version\":2,", "\"version\":1,", StringComparison.Ordinal)
+        .Replace("\"exceptionHResult\":-2128394905,", string.Empty, StringComparison.Ordinal);
+    PowerShellInvocationResult legacyResult = PowerShellSnapshotSerializer.Deserialize(Encoding.UTF8.GetBytes(legacyJson));
+    Require(
+        legacyResult.Errors.Records.Single().ExceptionHResult == 0 &&
+        legacyResult.Errors.Records.Single().Message == copiedResult.Errors.Records.Single().Message &&
+        legacyResult.Output.TotalRecordCount == copiedResult.Output.TotalRecordCount,
+        "NativeAOT snapshot deserialization did not preserve legacy v1 data with an unavailable HResult.");
 }
 
 void VerifyScriptParameterMetadata(PowerShellRuntime runtime)

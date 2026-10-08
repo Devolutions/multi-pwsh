@@ -116,9 +116,12 @@ SMA AST/token objects. The API accepts at most 64 KiB of source and fails rather
 than truncating more than 16 parameters, 16 `ValidateSet` values, or 16 parse
 errors.
 
-`PowerShellSnapshotSerializer` provides deterministic version-1 UTF-8 JSON for
-storage or display of immutable invocation results. Documents are capped at
-1 MiB and reject unknown members, invalid versions, malformed tagged values,
+`PowerShellSnapshotSerializer` writes deterministic version-2 UTF-8 JSON for
+storage or display of immutable invocation results, including copied exception
+HResults and `TimeSpan` values. It also reads legacy version-1 documents, whose
+errors restore an unavailable HResult as zero. Version-2 errors require an
+explicit HResult. Documents are capped at 1 MiB and reject unknown members,
+invalid versions, malformed tagged values,
 and invalid bounds. Deserialization only rebuilds copied facade DTOs; it never
 creates PowerShell/SMA, live CLR objects, or object handles.
 

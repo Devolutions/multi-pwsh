@@ -90,7 +90,8 @@ public sealed class DtoContractGenerator : IIncrementalGenerator
         int depth,
         out string reason)
     {
-        if (depth > MaximumDtoDepth)
+        // The required $version scalar is one level deeper than its DTO property bag.
+        if (depth >= MaximumDtoDepth)
         {
             reason = "contains a nested DTO graph whose depth exceeds eight levels";
             return false;
@@ -111,9 +112,22 @@ public sealed class DtoContractGenerator : IIncrementalGenerator
                     continue;
                 }
 
+                ProjectionKind kind = GetProjectionKind(property.Type);
+                if (kind == ProjectionKind.Unsupported)
+                {
+                    continue;
+                }
+
+                int memberDepth = depth + (kind.IsArray ? 2 : 1);
+                if (memberDepth > MaximumDtoDepth)
+                {
+                    reason = "contains a tagged value graph whose depth exceeds eight levels";
+                    return false;
+                }
+
                 INamedTypeSymbol? nested = GetNestedContractType(property.Type);
                 if (nested is not null &&
-                    !TryValidateDtoGraph(nested, ancestors, depth + 1, out reason))
+                    !TryValidateDtoGraph(nested, ancestors, memberDepth, out reason))
                 {
                     return false;
                 }
@@ -384,6 +398,14 @@ public sealed class DtoContractGenerator : IIncrementalGenerator
             source.Append("            var converted = new ").Append(element).Append("[values!.Count];").AppendLine();
             source.AppendLine("            for (var index = 0; index < values.Count; index++)");
             source.AppendLine("            {");
+            if (member.Kind.Element.IsNullable)
+            {
+                source.AppendLine("                if (values[index].IsNull)");
+                source.AppendLine("                {");
+                source.AppendLine("                    converted[index] = null;");
+                source.AppendLine("                    continue;");
+                source.AppendLine("                }");
+            }
             EmitScalarRead(source, member.Kind.Element!, "values[index]", "converted[index]", path, member.MaximumStringLength, "                ");
             source.AppendLine("            }");
             source.Append("            dto.@").Append(member.PropertyName).AppendLine(" = converted;");
@@ -415,14 +437,9 @@ public sealed class DtoContractGenerator : IIncrementalGenerator
             source.Append(indent).Append("if (!").Append(kind.DtoProjectionTypeName).Append(".TryRead(")
                 .Append(input).AppendLine(", out var scalar, out var nestedError))");
             source.Append(indent).AppendLine("{");
-            source.Append(indent).Append("    string nestedPath = nestedError is null || global::System.String.IsNullOrEmpty(nestedError.Path) ? ")
+            source.Append(indent).Append("    error = global::Devolutions.PowerShell.Ffi.PowerShellDtoProjection.PrefixPath(nestedError!, ")
                 .Append(path)
-                .Append(" : global::Devolutions.PowerShell.Ffi.PowerShellDtoProjection.JoinPath(")
-                .Append(path)
-                .AppendLine(", nestedError.Path);");
-            source.Append(indent).AppendLine("    error = nestedError?.Failure == global::Devolutions.PowerShell.Ffi.PowerShellDtoProjectionFailure.ValueTooLarge");
-            source.Append(indent).AppendLine("        ? global::Devolutions.PowerShell.Ffi.PowerShellDtoProjection.ValueTooLarge(nestedPath, nestedError.Message)");
-            source.Append(indent).AppendLine("        : global::Devolutions.PowerShell.Ffi.PowerShellDtoProjection.InvalidValue(nestedPath, nestedError?.Message ?? \"The nested DTO value is invalid.\");");
+                .AppendLine(");");
             source.Append(indent).AppendLine("    result = default;");
             source.Append(indent).AppendLine("    return false;");
             source.Append(indent).AppendLine("}");
@@ -449,17 +466,17 @@ public sealed class DtoContractGenerator : IIncrementalGenerator
         {
             source.Append(indent).AppendLine("try");
             source.Append(indent).AppendLine("{");
-            source.Append(indent).Append("    var converted = (").Append(kind.ValueTypeName).Append(")checked((")
+            source.Append(indent).Append("    var enumValue = (").Append(kind.ValueTypeName).Append(")checked((")
                 .Append(kind.ConversionTypeName).AppendLine(")scalar);");
             source.Append(indent).Append("    if (!global::System.Enum.IsDefined(typeof(").Append(kind.ValueTypeName)
-                .AppendLine("), converted))");
+                .AppendLine("), enumValue))");
             source.Append(indent).AppendLine("    {");
             source.Append(indent).Append("        error = global::Devolutions.PowerShell.Ffi.PowerShellDtoProjection.InvalidValue(")
                 .Append(path).AppendLine(", \"The DTO enum member has an undefined value.\");");
             source.Append(indent).AppendLine("        result = default;");
             source.Append(indent).AppendLine("        return false;");
             source.Append(indent).AppendLine("    }");
-            source.Append(indent).Append("    ").Append(output).AppendLine(" = converted;");
+            source.Append(indent).Append("    ").Append(output).AppendLine(" = enumValue;");
             source.Append(indent).AppendLine("}");
             source.Append(indent).AppendLine("catch (global::System.OverflowException)");
             source.Append(indent).AppendLine("{");
@@ -550,13 +567,8 @@ public sealed class DtoContractGenerator : IIncrementalGenerator
         source.AppendLine("        }");
         source.AppendLine("        catch (global::Devolutions.PowerShell.Ffi.PowerShellDtoProjectionException exception)");
         source.AppendLine("        {");
-        source.Append("            string path = global::System.String.IsNullOrEmpty(exception.Error.Path) ? ")
-            .Append(Literal(member.WireName))
-            .Append(" : global::Devolutions.PowerShell.Ffi.PowerShellDtoProjection.JoinPath(")
-            .Append(Literal(member.WireName)).AppendLine(", exception.Error.Path);");
-        source.AppendLine("            var error = exception.Error.Failure == global::Devolutions.PowerShell.Ffi.PowerShellDtoProjectionFailure.ValueTooLarge");
-        source.AppendLine("                ? global::Devolutions.PowerShell.Ffi.PowerShellDtoProjection.ValueTooLarge(path, exception.Error.Message)");
-        source.AppendLine("                : global::Devolutions.PowerShell.Ffi.PowerShellDtoProjection.InvalidValue(path, exception.Error.Message);");
+        source.Append("            var error = global::Devolutions.PowerShell.Ffi.PowerShellDtoProjection.PrefixPath(exception.Error, ")
+            .Append(Literal(member.WireName)).AppendLine(");");
         source.AppendLine("            throw global::Devolutions.PowerShell.Ffi.PowerShellDtoProjection.CreateException(error);");
         source.AppendLine("        }");
         source.AppendLine("    }");
@@ -822,7 +834,7 @@ public sealed class DtoContractGenerator : IIncrementalGenerator
 
             return new ProjectionKind(
                 Name,
-                DeclaredTypeName + (isValueType ? "?" : string.Empty),
+                DeclaredTypeName + "?",
                 ValueTypeName,
                 isValueType,
                 true,

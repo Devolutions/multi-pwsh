@@ -1,6 +1,8 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Devolutions.PowerShell.Ffi;
 
 Assembly facadeAssembly = typeof(PowerShell).Assembly;
@@ -77,6 +79,8 @@ NativeImportInspection[] nativeImports = nativeMethodsType.GetMethods(StaticNonP
 
 ValidateAbiCompatibility(facadeAssembly, StaticNonPublic);
 ValidatePowerShellValueTimeSpanPayload();
+ValidateSnapshotFormatCompatibility();
+ValidateRemotePoolArgumentNames();
 
 var inspection = new FacadeInspection(
     facadeAssembly.GetReferencedAssemblies().Select(reference => reference.Name!).OrderBy(name => name, StringComparer.Ordinal).ToArray(),
@@ -250,6 +254,141 @@ static void ValidatePowerShellValueTimeSpanPayload()
         }
         catch (TargetInvocationException exception) when (exception.InnerException is PowerShellFfiException)
         {
+        }
+    }
+}
+
+static void ValidateSnapshotFormatCompatibility()
+{
+    const string legacyJson = """
+        {"version":1,"result":{
+          "state":1,"invocationId":23,"hadErrors":true,"isTerminatingFailure":false,"isSequenceTruncated":false,
+          "output":{"isTruncated":false,"totalRecordCount":0,"droppedRecordCount":0,"records":[]},
+          "errors":{"isTruncated":false,"totalRecordCount":1,"droppedRecordCount":0,"records":[{
+            "message":"legacy-error","fullyQualifiedErrorId":"legacy-id","category":"InvalidOperation","exceptionType":"System.Exception",
+            "invocationName":"","positionMessage":"","scriptStackTrace":"","categoryReason":"","categoryActivity":"",
+            "categoryTargetName":"","categoryTargetType":"","commandName":"","invocationLine":"","offsetInLine":"",
+            "pipelineLength":"","pipelinePosition":"","errorDetailsMessage":"","recommendedAction":"","targetDisplayText":"",
+            "targetValue":null,"sequence":7,"isTruncated":false
+          }]},
+          "warnings":{"isTruncated":false,"totalRecordCount":0,"droppedRecordCount":0,"records":[]},
+          "verbose":{"isTruncated":false,"totalRecordCount":0,"droppedRecordCount":0,"records":[]},
+          "debug":{"isTruncated":false,"totalRecordCount":0,"droppedRecordCount":0,"records":[]},
+          "information":{"isTruncated":false,"totalRecordCount":0,"droppedRecordCount":0,"records":[]},
+          "progress":{"isTruncated":false,"totalRecordCount":0,"droppedRecordCount":0,"records":[]},
+          "sequence":[]
+        }}
+        """;
+    PowerShellInvocationResult legacy = PowerShellSnapshotSerializer.Deserialize(Encoding.UTF8.GetBytes(legacyJson));
+    PowerShellInvocationError legacyError = legacy.Errors.Records.Single();
+    if (legacy.InvocationId != 23 || !legacy.HadErrors ||
+        legacyError.Message != "legacy-error" || legacyError.FullyQualifiedErrorId != "legacy-id" ||
+        legacyError.Sequence != 7 || legacyError.ExceptionHResult != 0)
+    {
+        throw new InvalidOperationException("Legacy v1 snapshots did not restore their copied data and unavailable HResult.");
+    }
+
+    JsonObject current = JsonNode.Parse(legacyJson)!.AsObject();
+    current["version"] = 2;
+    JsonObject currentError = current["result"]!["errors"]!["records"]![0]!.AsObject();
+    currentError["exceptionHResult"] = -2128394905;
+    PowerShellInvocationResult restored = PowerShellSnapshotSerializer.Deserialize(Encoding.UTF8.GetBytes(current.ToJsonString()));
+    byte[] serialized = PowerShellSnapshotSerializer.Serialize(restored);
+    JsonNode serializedNode = JsonNode.Parse(serialized)!;
+    if (PowerShellSnapshotSerializer.FormatVersion != 2 ||
+        restored.Errors.Records.Single().ExceptionHResult != -2128394905 ||
+        serializedNode["version"]!.GetValue<int>() != 2 ||
+        serializedNode["result"]!["errors"]!["records"]![0]!["exceptionHResult"]!.GetValue<int>() != -2128394905 ||
+        PowerShellSnapshotSerializer.Deserialize(serialized).Errors.Records.Single().ExceptionHResult != -2128394905 ||
+        !serialized.SequenceEqual(PowerShellSnapshotSerializer.Serialize(restored)))
+    {
+        throw new InvalidOperationException("V2 snapshots did not deterministically preserve the versioned HResult.");
+    }
+
+    JsonNode upgraded = JsonNode.Parse(PowerShellSnapshotSerializer.Serialize(legacy))!;
+    if (upgraded["version"]!.GetValue<int>() != 2 ||
+        upgraded["result"]!["errors"]!["records"]![0]!["exceptionHResult"]!.GetValue<int>() != 0)
+    {
+        throw new InvalidOperationException("Legacy snapshots were not upgraded to the explicit v2 error schema.");
+    }
+
+    currentError.Remove("exceptionHResult");
+    RequireInvalidSnapshot(current, "a v2 error without an HResult");
+    currentError["exceptionHResult"] = null;
+    RequireInvalidSnapshot(current, "a v2 error with a null HResult");
+    current["version"] = 1;
+    RequireInvalidSnapshot(current, "a v1 document containing a null v2 error field");
+    currentError["exceptionHResult"] = 42;
+    current["version"] = 1;
+    RequireInvalidSnapshot(current, "a v1 document containing a v2 error field");
+    currentError.Remove("exceptionHResult");
+    current["unexpected"] = true;
+    RequireInvalidSnapshot(current, "an unknown member in v1");
+    current["version"] = 2;
+    currentError["exceptionHResult"] = 42;
+    RequireInvalidSnapshot(current, "an unknown member in v2");
+    current.Remove("unexpected");
+    current["version"] = 3;
+    RequireInvalidSnapshot(current, "an unsupported snapshot version");
+
+    current["version"] = 2;
+    currentError["targetValue"] = new JsonObject
+    {
+        ["kind"] = 17,
+        ["payload"] = Convert.ToBase64String([1, 0, 0, 0, 0, 0, 0, 0]),
+    };
+    PowerShellInvocationError durationError = PowerShellSnapshotSerializer.Deserialize(
+        Encoding.UTF8.GetBytes(current.ToJsonString())).Errors.Records.Single();
+    if (durationError.TargetValue is null || !durationError.TargetValue.TryGetTimeSpan(out TimeSpan duration) || duration.Ticks != 1)
+    {
+        throw new InvalidOperationException("V2 snapshots did not restore exact TimeSpan target ticks.");
+    }
+    current["version"] = 1;
+    currentError.Remove("exceptionHResult");
+    RequireInvalidSnapshot(current, "a v1 document containing a v2 TimeSpan value");
+}
+
+static void RequireInvalidSnapshot(JsonObject document, string description)
+{
+    try
+    {
+        _ = PowerShellSnapshotSerializer.Deserialize(Encoding.UTF8.GetBytes(document.ToJsonString()));
+    }
+    catch (ArgumentException)
+    {
+        return;
+    }
+    throw new InvalidOperationException($"Snapshot deserialization accepted {description}.");
+}
+
+static void ValidateRemotePoolArgumentNames()
+{
+    var connection = new DevolutionsManagedWsManConnectionOptions(new Uri("https://example.test/wsman"));
+    foreach ((uint minimum, uint maximum, string parameter) in new (uint, uint, string)[]
+    {
+        (0, 1, "minimumRunspaces"),
+        (65, 65, "minimumRunspaces"),
+        (1, 0, "maximumRunspaces"),
+        (2, 1, "maximumRunspaces"),
+        (1, 65, "maximumRunspaces"),
+    })
+    {
+        try
+        {
+            _ = new PowerShellRemoteSessionPoolOptions(connection, minimum, maximum);
+        }
+        catch (ArgumentOutOfRangeException exception) when (exception.ParamName == parameter)
+        {
+            continue;
+        }
+        throw new InvalidOperationException($"Remote pool bounds ({minimum}, {maximum}) did not identify {parameter}.");
+    }
+    foreach (uint bound in new uint[] { 1, 64 })
+    {
+        var options = new PowerShellRemoteSessionPoolOptions(connection, bound, bound);
+        if (options.MinimumRunspaces != bound || options.MaximumRunspaces != bound)
+        {
+            throw new InvalidOperationException($"Remote pool bounds did not preserve the supported boundary {bound}.");
         }
     }
 }
