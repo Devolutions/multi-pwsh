@@ -17,4 +17,5 @@ public enum PowerShellValueKind : uint
     Uri = 12,
     Array = 13,
     PropertyBag = 14,
+    TimeSpan = 17,
 }

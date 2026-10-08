@@ -56,6 +56,7 @@ const FEATURE_RELIABLE_BRIDGE_EVENTS: u64 = 1 << 28;
 const FEATURE_OBSERVED_PRESENTATION: u64 = 1 << 29;
 const FEATURE_SECRET_ADAPTERS: u64 = 1 << 30;
 const FEATURE_CREDENTIAL_RESULT: u64 = 1 << 31;
+const FEATURE_REMOTE_PROVIDER_DIAGNOSTICS: u64 = 1 << 32;
 const SECRET_VALUE_KIND_UTF16: u32 = 15;
 const SECRET_VALUE_KIND_CREDENTIAL: u32 = 16;
 const MAX_SECRET_UTF16_CODE_UNITS: usize = 4_096;
@@ -111,6 +112,7 @@ const VALUE_KIND_STRING: u32 = 1;
 const VALUE_KIND_UNSIGNED_INTEGER: u32 = 5;
 const VALUE_KIND_ARRAY: u32 = 13;
 const VALUE_KIND_PROPERTY_BAG: u32 = 14;
+const VALUE_KIND_TIME_SPAN: u32 = 17;
 const CAPABILITY_REGISTRATION_VERSION: u32 = 1;
 const MAX_CAPABILITIES: usize = 16;
 const MAX_CAPABILITY_NAME_BYTES: usize = 64;
@@ -171,6 +173,10 @@ pub struct RuntimeDiagnosticsInfo {
     power_shell_file_version_available: u32,
     contract_pack_count: u32,
     _reserved: u32,
+    remote_provider_status: u32,
+    remote_provider_unavailable_reason: u32,
+    _reserved2: u32,
+    remote_provider_capabilities: u64,
 }
 
 #[repr(C)]
@@ -1749,7 +1755,7 @@ fn validate_value_payload(kind: u32, payload: &[u8], depth: u8) -> Result<(), (S
             }
             Ok(())
         }
-        4 | 5 | 6 | 9 => require_value_length(payload, 8, "numeric"),
+        4 | 5 | 6 | 9 | 17 => require_value_length(payload, 8, "numeric"),
         8 => Ok(()),
         10 => require_value_length(payload, 10, "date-time offset"),
         13 => validate_value_array(payload, depth + 1),
@@ -1970,7 +1976,7 @@ fn read_capability_kind_list(kind: u32, payload: &[u8], description: &str) -> Re
                 format!("{} contains an invalid value kind", description),
             )
         })?;
-        if value_kind > VALUE_KIND_PROPERTY_BAG || !seen.insert(value_kind) {
+        if (value_kind > VALUE_KIND_PROPERTY_BAG && value_kind != VALUE_KIND_TIME_SPAN) || !seen.insert(value_kind) {
             return Err((
                 Status::InvalidArgument,
                 format!("{} contains an invalid or duplicate value kind", description),
@@ -6307,6 +6313,7 @@ fn feature_flags() -> u64 {
         | FEATURE_OBSERVED_PRESENTATION
         | FEATURE_SECRET_ADAPTERS
         | FEATURE_CREDENTIAL_RESULT
+        | FEATURE_REMOTE_PROVIDER_DIAGNOSTICS
 }
 
 fn create_live_object_probe(initial_count: i64) -> Result<*mut std::ffi::c_void, (Status, String)> {
@@ -6412,6 +6419,10 @@ pub unsafe extern "C" fn multi_pwsh_get_runtime_diagnostics_info(
         (*info).power_shell_file_version_available = u32::from(diagnostics.power_shell_file_version.is_some());
         (*info).contract_pack_count = contract_pack_identities.len() as u32;
         (*info)._reserved = 0;
+        (*info).remote_provider_status = diagnostics.devolutions_wsman_provider_status;
+        (*info).remote_provider_unavailable_reason = diagnostics.devolutions_wsman_provider_unavailable_reason;
+        (*info)._reserved2 = 0;
+        (*info).remote_provider_capabilities = diagnostics.devolutions_wsman_provider_capabilities;
         Ok(Status::Success)
     })
 }
@@ -10371,7 +10382,8 @@ mod tests {
             | FEATURE_RELIABLE_BRIDGE_EVENTS
             | FEATURE_OBSERVED_PRESENTATION
             | FEATURE_SECRET_ADAPTERS
-            | FEATURE_CREDENTIAL_RESULT;
+            | FEATURE_CREDENTIAL_RESULT
+            | FEATURE_REMOTE_PROVIDER_DIAGNOSTICS;
 
         assert_eq!(ABI_VERSION, 2);
         assert_eq!(MINIMUM_COMPATIBLE_ABI_VERSION, 2);
@@ -12714,6 +12726,23 @@ mod tests {
         credential.extend_from_slice(b"user");
         credential.extend_from_slice(&secret_utf16);
         assert!(validate_secret_parameter_value(SECRET_VALUE_KIND_CREDENTIAL, &credential).is_ok());
+    }
+
+    #[test]
+    fn time_span_tagged_values_require_eight_little_endian_tick_bytes() {
+        assert!(validate_value_payload(VALUE_KIND_TIME_SPAN, &(-1_i64).to_le_bytes(), 0).is_ok());
+        assert_eq!(
+            validate_value_payload(VALUE_KIND_TIME_SPAN, &[0_u8; 7], 0)
+                .expect_err("short TimeSpan payload must fail")
+                .0,
+            Status::InvalidArgument
+        );
+        assert_eq!(
+            validate_value_payload(VALUE_KIND_TIME_SPAN, &[0_u8; 9], 0)
+                .expect_err("long TimeSpan payload must fail")
+                .0,
+            Status::InvalidArgument
+        );
     }
 
     #[test]

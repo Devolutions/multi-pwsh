@@ -2,6 +2,7 @@ bin/
 obj/
 build/
 target/
+.dotnet/
 Makefile
 CMakeCache.txt
 CMakeFiles/

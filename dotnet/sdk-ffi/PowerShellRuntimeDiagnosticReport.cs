@@ -50,7 +50,8 @@ public sealed class PowerShellRuntimeDiagnosticReport
         uint payloadTableSlotCount,
         PowerShellPayloadTableShape payloadTableShape,
         ulong featureFlags,
-        IReadOnlyList<PowerShellLiveObjectContractPackIdentity> registeredLiveObjectContractPacks)
+        IReadOnlyList<PowerShellLiveObjectContractPackIdentity> registeredLiveObjectContractPacks,
+        PowerShellRemoteProviderDiagnostic managedWsManProvider)
     {
         PayloadDirectory = payloadDirectory;
         PowerShellFileVersion = powerShellFileVersion;
@@ -60,6 +61,7 @@ public sealed class PowerShellRuntimeDiagnosticReport
         PayloadTableShape = payloadTableShape;
         FeatureFlags = featureFlags;
         RegisteredLiveObjectContractPacks = registeredLiveObjectContractPacks;
+        ManagedWsManProvider = managedWsManProvider;
     }
 
     /// <summary>
@@ -83,6 +85,8 @@ public sealed class PowerShellRuntimeDiagnosticReport
 
     public IReadOnlyList<PowerShellLiveObjectContractPackIdentity> RegisteredLiveObjectContractPacks { get; }
 
+    public PowerShellRemoteProviderDiagnostic ManagedWsManProvider { get; }
+
     internal static unsafe PowerShellRuntimeDiagnosticReport Create(
         string payloadDirectory,
         ulong featureFlags)
@@ -102,7 +106,18 @@ public sealed class PowerShellRuntimeDiagnosticReport
             info.PayloadTableShape != (uint)PowerShellPayloadTableShape.V1 ||
             info.PowerShellFileVersionAvailable > 1 ||
             info.ContractPackCount > 16 ||
-            info.Reserved != 0)
+            info.Reserved != 0 ||
+            !Enum.IsDefined((PowerShellRemoteProviderStatus)info.RemoteProviderStatus) ||
+            !Enum.IsDefined((PowerShellRemoteProviderUnavailableReason)info.RemoteProviderUnavailableReason) ||
+            info.Reserved2 != 0 ||
+            (info.RemoteProviderCapabilities &
+             ~(ulong)(PowerShellRemoteProviderCapability.CustomClientTransport |
+                       PowerShellRemoteProviderCapability.RemoteRunspacePool |
+                       PowerShellRemoteProviderCapability.HostStreamRelay |
+                       PowerShellRemoteProviderCapability.NegotiateAuthentication |
+                       PowerShellRemoteProviderCapability.KerberosAuthentication |
+                       PowerShellRemoteProviderCapability.NtlmAuthentication |
+                       PowerShellRemoteProviderCapability.KdcProxy)) != 0)
         {
             throw new PowerShellFfiException(
                 PowerShellFfiStatus.ManagedFailure,
@@ -141,6 +156,35 @@ public sealed class PowerShellRuntimeDiagnosticReport
             contractPacks[checked((int)index)] = new PowerShellLiveObjectContractPackIdentity(identity);
         }
 
+        var providerStatus = (PowerShellRemoteProviderStatus)info.RemoteProviderStatus;
+        var unavailableReason =
+            (PowerShellRemoteProviderUnavailableReason)info.RemoteProviderUnavailableReason;
+        var providerCapabilities =
+            (PowerShellRemoteProviderCapability)info.RemoteProviderCapabilities;
+        bool providerIsConsistent = providerStatus switch
+        {
+            PowerShellRemoteProviderStatus.Available =>
+                unavailableReason == PowerShellRemoteProviderUnavailableReason.None &&
+                providerCapabilities.HasFlag(PowerShellRemoteProviderCapability.CustomClientTransport) &&
+                providerCapabilities.HasFlag(PowerShellRemoteProviderCapability.RemoteRunspacePool),
+            PowerShellRemoteProviderStatus.Unavailable =>
+                unavailableReason != PowerShellRemoteProviderUnavailableReason.None &&
+                providerCapabilities == PowerShellRemoteProviderCapability.None,
+            _ => false,
+        };
+        if (!providerIsConsistent)
+        {
+            throw new PowerShellFfiException(
+                PowerShellFfiStatus.ManagedFailure,
+                "Native PowerShell FFI returned inconsistent remote provider diagnostic metadata.");
+        }
+
+        var managedWsManProvider = new PowerShellRemoteProviderDiagnostic(
+            PowerShellRemoteProviderDiagnostic.DevolutionsManagedWsManProviderId,
+            providerStatus,
+            unavailableReason,
+            providerCapabilities);
+
         return new PowerShellRuntimeDiagnosticReport(
             payloadDirectory,
             fileVersion,
@@ -149,7 +193,8 @@ public sealed class PowerShellRuntimeDiagnosticReport
             info.PayloadTableSlotCount,
             (PowerShellPayloadTableShape)info.PayloadTableShape,
             featureFlags,
-            Array.AsReadOnly(contractPacks));
+            Array.AsReadOnly(contractPacks),
+            managedWsManProvider);
     }
 
     private unsafe delegate int CopyUtf8Delegate(

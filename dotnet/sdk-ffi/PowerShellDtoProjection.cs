@@ -203,6 +203,16 @@ public static class PowerShellDtoProjection
         return string.IsNullOrEmpty(path) ? member : string.Concat(path, ".", member);
     }
 
+    public static PowerShellDtoProjectionError PrefixPath(PowerShellDtoProjectionError error, string path)
+    {
+        ArgumentNullException.ThrowIfNull(error);
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        return Failure(
+            error.Failure,
+            string.IsNullOrEmpty(error.Path) ? path : JoinPath(path, error.Path),
+            error.Message);
+    }
+
     public static PowerShellDtoProjectionError InvalidValue(string path, string message) =>
         Failure(PowerShellDtoProjectionFailure.InvalidValue, path, message);
 

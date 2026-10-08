@@ -1,6 +1,8 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Devolutions.PowerShell.Ffi;
 
 Assembly facadeAssembly = typeof(PowerShell).Assembly;
@@ -76,7 +78,8 @@ NativeImportInspection[] nativeImports = nativeMethodsType.GetMethods(StaticNonP
     .ToArray();
 
 ValidateAbiCompatibility(facadeAssembly, StaticNonPublic);
-ValidatePowerShellValuePager();
+ValidatePowerShellValueTimeSpanPayload();
+ValidateSnapshotFormatCompatibility();
 
 var inspection = new FacadeInspection(
     facadeAssembly.GetReferencedAssemblies().Select(reference => reference.Name!).OrderBy(name => name, StringComparer.Ordinal).ToArray(),
@@ -112,9 +115,9 @@ static void ValidateAbiCompatibility(Assembly facadeAssembly, BindingFlags stati
         throw new InvalidOperationException("The facade must retain an ABI validation overload that accepts NativeAbiInfo.");
     }
 
-    const ulong allRequiredFeatures = 0xC1FFFDFF;
+    const ulong allRequiredFeatures = 0x1C1FFFDFF;
     ensureSupportedAbi.Invoke(null, [CreateAbiInfo(abiInfoType, allRequiredFeatures, abiVersion: 2, minimumCompatibleAbiVersion: 2)]);
-    foreach (int bit in Enumerable.Range(0, 25).Concat([30, 31]))
+    foreach (int bit in Enumerable.Range(0, 25).Concat([30, 31, 32]))
     {
         if ((allRequiredFeatures & (1UL << bit)) == 0)
         {
@@ -171,24 +174,190 @@ static bool IsRejected(MethodInfo ensureSupportedAbi, object abiInfo)
     }
 }
 
-static void ValidatePowerShellValuePager()
+static void ValidatePowerShellValueTimeSpanPayload()
 {
-    using var pager = new PowerShellValuePager(new PowerShellValuePagerOptions(1, 1));
-    pager.Write(PowerShellValue.String("value"));
-    pager.Complete();
-
-    PowerShellValuePage page = pager.Read(0);
-    if (!page.IsTerminal || page.IsComplete || page.NextSequence != 1 || page.Records.Count != 1)
+    if ((uint)PowerShellValueKind.TimeSpan != 17)
     {
-        throw new InvalidOperationException("PowerShellValuePager did not return the expected terminal page.");
+        throw new InvalidOperationException("PowerShellValueKind.TimeSpan must append at wire kind 17 without renumbering V1 values.");
     }
 
-    pager.Acknowledge(page.NextSequence);
-    page = pager.Read(page.NextSequence);
-    if (!page.IsComplete || page.Records.Count != 0 || !pager.GetCompletion().IsComplete)
+    TimeSpan[] expectedValues =
+    [
+        TimeSpan.MinValue,
+        TimeSpan.FromTicks(-1),
+        TimeSpan.Zero,
+        TimeSpan.MaxValue,
+    ];
+    PropertyInfo payloadProperty = typeof(PowerShellValue).GetProperty(
+        "Payload",
+        BindingFlags.Instance | BindingFlags.NonPublic)!;
+    foreach (TimeSpan expected in expectedValues)
     {
-        throw new InvalidOperationException("PowerShellValuePager did not require acknowledgement before completion.");
+        PowerShellValue value = PowerShellValue.TimeSpan(expected);
+        TimeSpan actual = default;
+        if (value.Kind != PowerShellValueKind.TimeSpan ||
+            !value.TryGetTimeSpan(out actual) ||
+            actual.Ticks != expected.Ticks)
+        {
+            throw new InvalidOperationException($"PowerShellValue TimeSpan did not round-trip exact ticks {expected.Ticks}.");
+        }
+
+        byte[] payload = (byte[])payloadProperty.GetValue(value)!;
+        byte[] expectedPayload = Enumerable.Range(0, sizeof(long))
+            .Select(index => (byte)(expected.Ticks >> (index * 8)))
+            .ToArray();
+        if (!payload.SequenceEqual(expectedPayload))
+        {
+            throw new InvalidOperationException($"PowerShellValue TimeSpan payload was not an eight-byte little-endian tick count for {expected.Ticks}.");
+        }
     }
+
+    PowerShellValue copied = PowerShellValue.From(TimeSpan.FromTicks(-123456789));
+    TimeSpan copiedResult = default;
+    if (copied.Kind != PowerShellValueKind.TimeSpan ||
+        !copied.TryGetTimeSpan(out copiedResult) ||
+        copiedResult.Ticks != -123456789)
+    {
+        throw new InvalidOperationException("PowerShellValue.From did not preserve a copied TimeSpan.");
+    }
+
+    if (PowerShellValue.SignedInteger(-123456789).TryGetTimeSpan(out TimeSpan wrongKindResult) ||
+        wrongKindResult != default)
+    {
+        throw new InvalidOperationException("TryGetTimeSpan accepted a non-TimeSpan tagged value.");
+    }
+
+    MethodInfo fromNative = typeof(PowerShellValue).GetMethod(
+        "FromNative",
+        BindingFlags.Static | BindingFlags.NonPublic)!;
+    long nativeTicks = -72623859790382856;
+    byte[] nativePayload = Enumerable.Range(0, sizeof(long))
+        .Select(index => (byte)(nativeTicks >> (index * 8)))
+        .ToArray();
+    PowerShellValue nativeCopy = (PowerShellValue)fromNative.Invoke(
+        null,
+        [(uint)PowerShellValueKind.TimeSpan, nativePayload])!;
+    Array.Fill(nativePayload, (byte)0);
+    if (!nativeCopy.TryGetTimeSpan(out TimeSpan nativeResult) ||
+        nativeResult.Ticks != nativeTicks)
+    {
+        throw new InvalidOperationException("PowerShellValue did not decode and detach a copied native TimeSpan payload.");
+    }
+
+    foreach (int invalidLength in new[] { sizeof(long) - 1, sizeof(long) + 1 })
+    {
+        try
+        {
+            _ = fromNative.Invoke(null, [(uint)PowerShellValueKind.TimeSpan, new byte[invalidLength]]);
+            throw new InvalidOperationException($"PowerShellValue accepted a malformed TimeSpan payload length of {invalidLength}.");
+        }
+        catch (TargetInvocationException exception) when (exception.InnerException is PowerShellFfiException)
+        {
+        }
+    }
+}
+
+static void ValidateSnapshotFormatCompatibility()
+{
+    const string legacyJson = """
+        {"version":1,"result":{
+          "state":1,"invocationId":23,"hadErrors":true,"isTerminatingFailure":false,"isSequenceTruncated":false,
+          "output":{"isTruncated":false,"totalRecordCount":0,"droppedRecordCount":0,"records":[]},
+          "errors":{"isTruncated":false,"totalRecordCount":1,"droppedRecordCount":0,"records":[{
+            "message":"legacy-error","fullyQualifiedErrorId":"legacy-id","category":"InvalidOperation","exceptionType":"System.Exception",
+            "invocationName":"","positionMessage":"","scriptStackTrace":"","categoryReason":"","categoryActivity":"",
+            "categoryTargetName":"","categoryTargetType":"","commandName":"","invocationLine":"","offsetInLine":"",
+            "pipelineLength":"","pipelinePosition":"","errorDetailsMessage":"","recommendedAction":"","targetDisplayText":"",
+            "targetValue":null,"sequence":7,"isTruncated":false
+          }]},
+          "warnings":{"isTruncated":false,"totalRecordCount":0,"droppedRecordCount":0,"records":[]},
+          "verbose":{"isTruncated":false,"totalRecordCount":0,"droppedRecordCount":0,"records":[]},
+          "debug":{"isTruncated":false,"totalRecordCount":0,"droppedRecordCount":0,"records":[]},
+          "information":{"isTruncated":false,"totalRecordCount":0,"droppedRecordCount":0,"records":[]},
+          "progress":{"isTruncated":false,"totalRecordCount":0,"droppedRecordCount":0,"records":[]},
+          "sequence":[]
+        }}
+        """;
+    PowerShellInvocationResult legacy = PowerShellSnapshotSerializer.Deserialize(Encoding.UTF8.GetBytes(legacyJson));
+    PowerShellInvocationError legacyError = legacy.Errors.Records.Single();
+    if (legacy.InvocationId != 23 || !legacy.HadErrors ||
+        legacyError.Message != "legacy-error" || legacyError.FullyQualifiedErrorId != "legacy-id" ||
+        legacyError.Sequence != 7 || legacyError.ExceptionHResult != 0)
+    {
+        throw new InvalidOperationException("Legacy v1 snapshots did not restore their copied data and unavailable HResult.");
+    }
+
+    JsonObject current = JsonNode.Parse(legacyJson)!.AsObject();
+    current["version"] = 2;
+    JsonObject currentError = current["result"]!["errors"]!["records"]![0]!.AsObject();
+    currentError["exceptionHResult"] = -2128394905;
+    PowerShellInvocationResult restored = PowerShellSnapshotSerializer.Deserialize(Encoding.UTF8.GetBytes(current.ToJsonString()));
+    byte[] serialized = PowerShellSnapshotSerializer.Serialize(restored);
+    JsonNode serializedNode = JsonNode.Parse(serialized)!;
+    if (PowerShellSnapshotSerializer.FormatVersion != 2 ||
+        restored.Errors.Records.Single().ExceptionHResult != -2128394905 ||
+        serializedNode["version"]!.GetValue<int>() != 2 ||
+        serializedNode["result"]!["errors"]!["records"]![0]!["exceptionHResult"]!.GetValue<int>() != -2128394905 ||
+        PowerShellSnapshotSerializer.Deserialize(serialized).Errors.Records.Single().ExceptionHResult != -2128394905 ||
+        !serialized.SequenceEqual(PowerShellSnapshotSerializer.Serialize(restored)))
+    {
+        throw new InvalidOperationException("V2 snapshots did not deterministically preserve the versioned HResult.");
+    }
+
+    JsonNode upgraded = JsonNode.Parse(PowerShellSnapshotSerializer.Serialize(legacy))!;
+    if (upgraded["version"]!.GetValue<int>() != 2 ||
+        upgraded["result"]!["errors"]!["records"]![0]!["exceptionHResult"]!.GetValue<int>() != 0)
+    {
+        throw new InvalidOperationException("Legacy snapshots were not upgraded to the explicit v2 error schema.");
+    }
+
+    currentError.Remove("exceptionHResult");
+    RequireInvalidSnapshot(current, "a v2 error without an HResult");
+    currentError["exceptionHResult"] = null;
+    RequireInvalidSnapshot(current, "a v2 error with a null HResult");
+    current["version"] = 1;
+    RequireInvalidSnapshot(current, "a v1 document containing a null v2 error field");
+    currentError["exceptionHResult"] = 42;
+    current["version"] = 1;
+    RequireInvalidSnapshot(current, "a v1 document containing a v2 error field");
+    currentError.Remove("exceptionHResult");
+    current["unexpected"] = true;
+    RequireInvalidSnapshot(current, "an unknown member in v1");
+    current["version"] = 2;
+    currentError["exceptionHResult"] = 42;
+    RequireInvalidSnapshot(current, "an unknown member in v2");
+    current.Remove("unexpected");
+    current["version"] = 3;
+    RequireInvalidSnapshot(current, "an unsupported snapshot version");
+
+    current["version"] = 2;
+    currentError["targetValue"] = new JsonObject
+    {
+        ["kind"] = 17,
+        ["payload"] = Convert.ToBase64String([1, 0, 0, 0, 0, 0, 0, 0]),
+    };
+    PowerShellInvocationError durationError = PowerShellSnapshotSerializer.Deserialize(
+        Encoding.UTF8.GetBytes(current.ToJsonString())).Errors.Records.Single();
+    if (durationError.TargetValue is null || !durationError.TargetValue.TryGetTimeSpan(out TimeSpan duration) || duration.Ticks != 1)
+    {
+        throw new InvalidOperationException("V2 snapshots did not restore exact TimeSpan target ticks.");
+    }
+    current["version"] = 1;
+    currentError.Remove("exceptionHResult");
+    RequireInvalidSnapshot(current, "a v1 document containing a v2 TimeSpan value");
+}
+
+static void RequireInvalidSnapshot(JsonObject document, string description)
+{
+    try
+    {
+        _ = PowerShellSnapshotSerializer.Deserialize(Encoding.UTF8.GetBytes(document.ToJsonString()));
+    }
+    catch (ArgumentException)
+    {
+        return;
+    }
+    throw new InvalidOperationException($"Snapshot deserialization accepted {description}.");
 }
 
 internal sealed record FacadeInspection(

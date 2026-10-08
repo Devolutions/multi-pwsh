@@ -85,12 +85,13 @@ native handle alive for each P/Invoke call, including concurrent disposal races.
 Empty strings are valid UTF-8 inputs; embedded NUL characters are rejected.
 
 `PowerShellValue` is the only way to pass non-string values. It supports
-bounded primitive values, bytes, arrays, and property bags that become copied
-PSCustomObject-style snapshots. `PowerShellValue.From` rejects delegates and
-unsupported CLR objects with `PowerShellValueConversionException`; raw objects
-are never passed to PowerShell. `AddInput` is synchronous and bounded to 64
-values/64 KiB. Call `CompleteInput` before invoking a started input collection,
-or use `ResetInput`/`Clear` to discard it.
+bounded primitive values, exact-tick `TimeSpan` values, bytes, arrays, and
+property bags that become copied PSCustomObject-style snapshots.
+`PowerShellValue.From` rejects delegates and unsupported CLR objects with
+`PowerShellValueConversionException`; raw objects are never passed to
+PowerShell. `AddInput` is synchronous and bounded to 64 values/64 KiB. Call
+`CompleteInput` before invoking a started input collection, or use
+`ResetInput`/`Clear` to discard it.
 
 `Invoke` returns an immutable `PowerShellInvocationResult`. Its output and
 standard PowerShell streams are bounded snapshots rather than SMA objects:
@@ -99,10 +100,11 @@ UTF-16 code units. Snapshot metadata reports truncated records/fields and a
 global stream sequence, plus total/dropped record counts. Output snapshots can
 carry a copied safe scalar and a bounded tagged property bag containing only
 scalar `PSNoteProperty` values; complex values and enumerables are not
-traversed. Error snapshots add copied category/target, command, source and
-pipeline context. Per-error terminal status is intentionally unavailable:
-`IsTerminatingFailure` is result-level only. A terminating invocation throws
-`PowerShellInvocationException` with the same result snapshot.
+traversed. Error snapshots add copied category/target, command, source,
+pipeline context, and the exception HResult. Per-error terminal status is
+intentionally unavailable: `IsTerminatingFailure` is result-level only. A
+terminating invocation throws `PowerShellInvocationException` with the same
+result snapshot.
 Results also expose a monotonic invocation ID, terminal state, and `HadErrors`
 metadata without exposing any SMA type.
 
@@ -114,9 +116,12 @@ SMA AST/token objects. The API accepts at most 64 KiB of source and fails rather
 than truncating more than 16 parameters, 16 `ValidateSet` values, or 16 parse
 errors.
 
-`PowerShellSnapshotSerializer` provides deterministic version-1 UTF-8 JSON for
-storage or display of immutable invocation results. Documents are capped at
-1 MiB and reject unknown members, invalid versions, malformed tagged values,
+`PowerShellSnapshotSerializer` writes deterministic version-2 UTF-8 JSON for
+storage or display of immutable invocation results, including copied exception
+HResults and `TimeSpan` values. It also reads legacy version-1 documents, whose
+errors restore an unavailable HResult as zero. Version-2 errors require an
+explicit HResult. Documents are capped at 1 MiB and reject unknown members,
+invalid versions, malformed tagged values,
 and invalid bounds. Deserialization only rebuilds copied facade DTOs; it never
 creates PowerShell/SMA, live CLR objects, or object handles.
 
@@ -278,14 +283,17 @@ application DTO into the package's separate incremental source generator. The
 generator emits direct `Read`, `TryRead`, and `Write` methods for a versioned
 `PowerShellValue` property bag; no reflection or runtime type discovery is
 used. Contracts require public settable properties and a public parameterless
-constructor, and support only the documented copied scalar kinds plus bounded
-one-dimensional arrays of those scalars. Every property bag carries an exact
-`$version` value. By default unknown properties, missing required properties,
-incorrect scalar kinds, and string/array limit violations return a structured
-`PowerShellDtoProjectionError`; `Read` raises the corresponding typed
-exception. This is an application DTO mapper, not a serializer for arbitrary
-CLR graphs, PowerShell objects, credentials, callbacks, or live-object
-contracts.
+constructor. Supported members include checked signed/unsigned integer widths,
+nullable copied scalars, non-`[Flags]` enums with explicit underlying integer
+conversion, `TimeSpan`, bounded annotated nested DTOs, and one-dimensional
+arrays of supported scalars or nested DTOs. Cyclic graphs and graphs deeper
+than the tagged-value depth bound are rejected at compile time. Every property
+bag carries an exact `$version` value. By default unknown properties, missing
+required properties, incorrect scalar kinds, and string/array limit violations
+return a structured `PowerShellDtoProjectionError`; `Read` raises the
+corresponding typed exception. This is an application DTO mapper, not a
+serializer for arbitrary CLR graphs, PowerShell objects, credentials,
+callbacks, or live-object contracts.
 
 `PowerShellCompleteResultProjection.Read` connects an already completed
 `PowerShellInvocationResult`, or the full ordered typed/observed result-page

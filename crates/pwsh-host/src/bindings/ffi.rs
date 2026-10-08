@@ -34,6 +34,7 @@ const FFI_FEATURE_RELIABLE_BRIDGE_EVENTS: u64 = 1 << 28;
 const FFI_FEATURE_OBSERVED_PRESENTATION: u64 = 1 << 29;
 const FFI_FEATURE_SECRET_ADAPTERS: u64 = 1 << 30;
 const FFI_FEATURE_CREDENTIAL_RESULT: u64 = 1 << 31;
+const FFI_FEATURE_REMOTE_PROVIDER_DIAGNOSTICS: u64 = 1 << 32;
 const FFI_REQUIRED_FEATURES: u64 = FFI_FEATURE_ASYNC_OPERATION_PRIMITIVES
     | FFI_FEATURE_SESSION_PRIMITIVES
     | FFI_FEATURE_SESSION_POLLING
@@ -54,7 +55,8 @@ const FFI_REQUIRED_FEATURES: u64 = FFI_FEATURE_ASYNC_OPERATION_PRIMITIVES
     | FFI_FEATURE_RELIABLE_BRIDGE_EVENTS
     | FFI_FEATURE_OBSERVED_PRESENTATION
     | FFI_FEATURE_SECRET_ADAPTERS
-    | FFI_FEATURE_CREDENTIAL_RESULT;
+    | FFI_FEATURE_CREDENTIAL_RESULT
+    | FFI_FEATURE_REMOTE_PROVIDER_DIAGNOSTICS;
 const STATUS_SUCCESS: i32 = 0;
 const STATUS_BUFFER_TOO_SMALL: i32 = 1;
 const VALUE_KIND_PROPERTY_BAG: u32 = 14;
@@ -208,6 +210,7 @@ struct FfiApiV1 {
     observed_diagnostic_page_copy_record_value_fn: *const libc::c_void,
     power_shell_invoke_secret_result_fn: *const libc::c_void,
     power_shell_invoke_credential_result_fn: *const libc::c_void,
+    runtime_diagnostics_get_devolutions_wsman_provider_info_fn: *const libc::c_void,
 }
 
 type FnBindingsGetFfiApiV1 = unsafe extern "system" fn() -> *const FfiApiV1;
@@ -304,6 +307,8 @@ type FnFfiObservedDiagnosticPageCopyRecordValue =
     unsafe extern "system" fn(PowerShellHandle, i32, *mut u32, *mut u8, i32, *mut i32, *mut FfiCallResult) -> i32;
 type FnFfiRuntimeDiagnosticsCopyPowerShellFileVersionUtf8 =
     unsafe extern "system" fn(*mut u8, i32, *mut i32, *mut i32, *mut FfiCallResult) -> i32;
+type FnFfiRuntimeDiagnosticsGetDevolutionsWsManProviderInfo =
+    unsafe extern "system" fn(*mut u32, *mut u32, *mut u64, *mut FfiCallResult) -> i32;
 type FnFfiInvocationResultRelease = unsafe extern "system" fn(PowerShellHandle, *mut FfiCallResult) -> i32;
 type FnFfiInvocationResultGetInfo =
     unsafe extern "system" fn(PowerShellHandle, *mut u32, *mut i32, *mut FfiCallResult) -> i32;
@@ -546,6 +551,7 @@ pub(crate) struct FfiBindings {
     power_shell_set_bridge_context_fn: FnFfiPowerShellSetBridgeContext,
     power_shell_invoke_secret_result_fn: FnFfiPowerShellInvokeSecretResult,
     power_shell_invoke_credential_result_fn: FnFfiPowerShellInvokeCredentialResult,
+    runtime_diagnostics_get_devolutions_wsman_provider_info_fn: FnFfiRuntimeDiagnosticsGetDevolutionsWsManProviderInfo,
 }
 
 pub struct FfiPayloadRuntimeDiagnostics {
@@ -553,6 +559,9 @@ pub struct FfiPayloadRuntimeDiagnostics {
     pub payload_table_size: usize,
     pub payload_table_slot_count: u32,
     pub power_shell_file_version: Option<String>,
+    pub devolutions_wsman_provider_status: u32,
+    pub devolutions_wsman_provider_unavailable_reason: u32,
+    pub devolutions_wsman_provider_capabilities: u64,
 }
 
 #[derive(Clone, Copy)]
@@ -768,6 +777,7 @@ impl FfiBindings {
             api.observed_diagnostic_page_copy_record_value_fn,
             api.power_shell_invoke_secret_result_fn,
             api.power_shell_invoke_credential_result_fn,
+            api.runtime_diagnostics_get_devolutions_wsman_provider_info_fn,
         ];
         if fields.iter().any(|field| field.is_null()) {
             return Err(Error::IO(std::io::Error::new(
@@ -1070,6 +1080,11 @@ impl FfiBindings {
                     api.runtime_diagnostics_copy_power_shell_file_version_utf8_fn,
                 )
             },
+            runtime_diagnostics_get_devolutions_wsman_provider_info_fn: unsafe {
+                mem::transmute::<*const libc::c_void, FnFfiRuntimeDiagnosticsGetDevolutionsWsManProviderInfo>(
+                    api.runtime_diagnostics_get_devolutions_wsman_provider_info_fn,
+                )
+            },
             session_set_variable_fn: unsafe {
                 mem::transmute::<*const libc::c_void, FnFfiPowerShellSessionSetVariable>(api.session_set_variable_fn)
             },
@@ -1152,13 +1167,52 @@ impl FfiBindings {
 
     pub(crate) fn runtime_diagnostics(&self) -> Result<FfiPayloadRuntimeDiagnostics, FfiBindingError> {
         let power_shell_file_version = self.copy_power_shell_file_version()?;
+        let (
+            devolutions_wsman_provider_status,
+            devolutions_wsman_provider_unavailable_reason,
+            devolutions_wsman_provider_capabilities,
+        ) = self.devolutions_wsman_provider_info()?;
         Ok(FfiPayloadRuntimeDiagnostics {
             bindings_abi_version: self.abi_version,
             payload_table_size: self.payload_table_size,
             payload_table_slot_count: ((mem::size_of::<FfiApiV1>() - mem::size_of::<FfiApiV1Header>())
                 / mem::size_of::<*const libc::c_void>()) as u32,
             power_shell_file_version,
+            devolutions_wsman_provider_status,
+            devolutions_wsman_provider_unavailable_reason,
+            devolutions_wsman_provider_capabilities,
         })
+    }
+
+    fn devolutions_wsman_provider_info(&self) -> Result<(u32, u32, u64), FfiBindingError> {
+        let mut status = 0_u32;
+        let mut unavailable_reason = 0_u32;
+        let mut capabilities = 0_u64;
+        let mut diagnostic = [0_u8; FFI_CALL_DIAGNOSTIC_CAPACITY];
+        let mut call_result = new_call_result(&mut diagnostic);
+        let call_status = unsafe {
+            (self.runtime_diagnostics_get_devolutions_wsman_provider_info_fn)(
+                &mut status,
+                &mut unavailable_reason,
+                &mut capabilities,
+                &mut call_result,
+            )
+        };
+        check_status(call_status, &call_result, &diagnostic)?;
+
+        let valid = match status {
+            0 => (1..=4).contains(&unavailable_reason) && capabilities == 0,
+            1 => unavailable_reason == 0 && capabilities & !0x7f == 0 && capabilities & 0b11 == 0b11,
+            _ => false,
+        };
+        if !valid {
+            return Err(FfiBindingError::from_status(
+                -6,
+                "managed runtime diagnostics returned inconsistent Devolutions WSMan provider metadata".to_owned(),
+            ));
+        }
+
+        Ok((status, unavailable_reason, capabilities))
     }
 
     fn copy_power_shell_file_version(&self) -> Result<Option<String>, FfiBindingError> {
