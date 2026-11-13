@@ -173,14 +173,14 @@ jobs:
             multi_binary: multi-pwsh.exe
 
           - name: macos-x64
-            os: macos-14
+            os: macos-15
             target: x86_64-apple-darwin
             runtime_id: osx-x64
             multi_archive: multi-pwsh-macos-x64.zip
             multi_binary: multi-pwsh
 
           - name: macos-arm64
-            os: macos-14
+            os: macos-15
             target: aarch64-apple-darwin
             runtime_id: osx-arm64
             multi_archive: multi-pwsh-macos-arm64.zip
@@ -700,7 +700,7 @@ jobs:
             runtime_id: linux-x64
           - os: macos-15-intel
             runtime_id: osx-x64
-          - os: macos-14
+          - os: macos-15
             runtime_id: osx-arm64
 
     steps:

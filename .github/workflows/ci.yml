@@ -69,7 +69,7 @@ jobs:
         os:
           - ubuntu-latest
           - windows-latest
-          - macos-14
+          - macos-15
 
     steps:
       - name: Checkout
@@ -431,7 +431,7 @@ jobs:
             runtime_id: osx-x64
             native_file: libmulti_pwsh_sdk.dylib
             packaged_file: libmulti-pwsh-sdk.dylib
-          - os: macos-14
+          - os: macos-15
             runtime_id: osx-arm64
             native_file: libmulti_pwsh_sdk.dylib
             packaged_file: libmulti-pwsh-sdk.dylib
