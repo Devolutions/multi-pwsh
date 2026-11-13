@@ -24,7 +24,7 @@ jobs:
           - name: windows
             os: windows-latest
           - name: macos
-            os: macos-14
+            os: macos-15
           - name: linux
             os: ubuntu-latest
 

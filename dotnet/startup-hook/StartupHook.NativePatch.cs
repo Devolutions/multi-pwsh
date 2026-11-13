@@ -1,7 +1,9 @@
 using System;
+using System.Globalization;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Threading;
 
 public static partial class StartupHook
 {
@@ -35,30 +37,60 @@ public static partial class StartupHook
         IntPtr targetPtr = target.MethodHandle.GetFunctionPointer();
         IntPtr replacementPtr = replacement.MethodHandle.GetFunctionPointer();
 
-        MakeMethodWritable(targetPtr, patchSize, out uint oldProtect);
+        if (OperatingSystem.IsMacOS() && architecture == Architecture.Arm64)
+        {
+            if (Environment.Version.Major >= 10)
+            {
+                RedirectMacOSArm64FixupPrecode(targetPtr, replacementPtr);
+                return;
+            }
 
-        bool jitWriteProtectionDisabled = false;
+            if (AppContext.GetData("PWSH_HOST_NATIVE_JIT_PATCH") is not string address
+                || !ulong.TryParse(address, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out ulong value)
+                || value == 0)
+            {
+                throw new InvalidOperationException("The native macOS JIT patch helper is unavailable.");
+            }
+
+            byte* patch = stackalloc byte[patchSize];
+            WriteJumpPatch(patch, replacementPtr, architecture);
+            var nativePatch = (delegate* unmanaged<void*, void*, nuint, void>)(nuint)value;
+            nativePatch(targetPtr.ToPointer(), patch, (nuint)patchSize);
+            return;
+        }
+
+        MakeMethodWritable(targetPtr, patchSize, out uint oldProtect);
 
         try
         {
-            if (OperatingSystem.IsMacOS() && architecture == Architecture.Arm64)
-            {
-                pthread_jit_write_protect_np(0);
-                jitWriteProtectionDisabled = true;
-            }
-
             WriteJumpPatch((byte*)targetPtr, replacementPtr, architecture);
             FlushPatchedCode(targetPtr, patchSize, architecture);
         }
         finally
         {
-            if (jitWriteProtectionDisabled)
-            {
-                pthread_jit_write_protect_np(1);
-            }
-
             RestoreMethodProtection(targetPtr, patchSize, oldProtect);
         }
+    }
+
+    private static unsafe void RedirectMacOSArm64FixupPrecode(IntPtr targetPtr, IntPtr replacementPtr)
+    {
+        int pageSize = Environment.SystemPageSize;
+        uint* instructions = (uint*)targetPtr;
+        uint expectedLoad = 0x5800000B | ((uint)(pageSize / 4) << 5);
+
+        // .NET 10 maps fixup-precode instructions from a read-only template;
+        // its corresponding writable target slot is one page after the entry.
+        if (pageSize <= 0 || pageSize >= 0x100000 || pageSize % 4 != 0
+            || ((nuint)targetPtr & 7) != 0
+            || instructions[0] != expectedLoad
+            || instructions[1] != 0xD61F0160
+            || instructions[2] != 0xD50339BF)
+        {
+            throw new PlatformNotSupportedException("Unsupported macOS arm64 .NET fixup precode.");
+        }
+
+        long* targetSlot = (long*)((byte*)targetPtr + pageSize);
+        Interlocked.Exchange(ref *targetSlot, replacementPtr.ToInt64());
     }
 
     private static int GetPatchSize(Architecture architecture)
@@ -241,9 +273,6 @@ public static partial class StartupHook
 
     [DllImport("libc", SetLastError = true)]
     private static extern int mprotect(IntPtr address, nuint size, int protection);
-
-    [DllImport(LibSystem)]
-    private static extern void pthread_jit_write_protect_np(int enabled);
 
     [DllImport(LibSystem)]
     private static extern void sys_icache_invalidate(IntPtr start, nuint length);

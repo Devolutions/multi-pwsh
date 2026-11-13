@@ -11,8 +11,9 @@ The `dotnet/sdk-ffi` facade uses only `LibraryImport`. It has no
 ## Experimental runtime boundary
 
 The `dotnet/nativeaot-sample` NativeAOT executable has been exercised on Windows x64
-with an explicit PowerShell 7.4 payload in the **same process**. It creates a
-pipeline and receives script output through the Rust `cdylib`.
+with PowerShell 7.4 and 7.7 payloads in separate runs, each in the **same
+process** as the hosted runtime. It creates a pipeline and receives script
+output through the Rust `cdylib`.
 
 This is an acceptance experiment, not a claim that NativeAOT plus a dynamically
 hosted CoreCLR is a supported general .NET topology. The runtime host rejects
@@ -40,7 +41,7 @@ pointers it created and restores the original payload object rather than
 accepting arbitrary foreign `IUnknown` values.
 
 This is currently validated only by the Windows x64 NativeAOT sample with an
-explicit PowerShell 7.4 payload. It must be used only after the creating
+explicit PowerShell 7.4 or 7.7 payload. It must be used only after the creating
 invocation has completed and never from a capability callback or while a
 pipeline is active. The existing process-global operation lock does not make
 arbitrary direct proxy calls, reentrancy, runspace affinity, arbitrary member
@@ -66,7 +67,7 @@ setter, removed with `RemoveVariable`, or the session owner is released. The
 or failed assignment, but the managed probe itself must outlive its
 session-variable binding. Remove the variable before disposing the probe.
 
-This is a narrow Windows x64 / PowerShell 7.4 acceptance experiment, not
+This is a narrow Windows x64 / PowerShell 7.4 and 7.7 acceptance experiment, not
 support for arbitrary .NET 10 objects in PowerShell session state. PowerShell
 scripts can remove, overwrite, or alias the variable independently. The
 payload reconciles its tracked bindings when each pipeline ends: it releases a
@@ -2921,19 +2922,21 @@ pwsh -NoLogo -NoProfile -File tests/Test-PwshFfiPackage.ps1 `
 The ignored Rust test and NativeAOT sample require a real payload root containing
 `pwsh.dll`, `pwsh.runtimeconfig.json`, and
 `System.Management.Automation.dll`. The packaged Win-x64 consumer requires a
-PowerShell 7.4 payload and verifies typed-result paging through the managed
-facade, native host, and required V1 payload binding table.
+PowerShell 7.4 or 7.7 payload by default and verifies typed-result paging through
+the managed facade, native host, and required V1 payload binding table.
 
 ### Recording the qualified PowerShell version
 
-Qualification tracks the **latest released 7.4.x**; it is not pinned to a fixed
-patch. Because the qualified patch therefore moves over time, both the CI
-installer and the package harness record the exact build that was exercised
-instead of asserting a hardcoded one:
+Qualification tracks the **latest released 7.4.x and 7.7.x** on Windows x64;
+it is not pinned to fixed patches. The CI installer and package harness record
+the exact builds exercised instead of asserting hardcoded patches:
 
-- `scripts/Install-PowerShell74ForCi.ps1` resolves the newest non-prerelease
-  `v7.4.*` tag, verifies the extracted `pwsh` actually reports that version,
-  exports it as `PwshQualifiedVersion`, and appends it to the job summary.
+- `scripts/Install-PowerShell74ForCi.ps1` defaults to the newest non-prerelease
+  `v7.4.*` tag and exports it as `PwshQualifiedVersion`. CI also runs it with
+  `-VersionLine 7.7` to install the newest released
+  `v7.7.*` tag and export `Pwsh77QualifiedVersion`, without changing the 7.4
+  binding-discovery path. It verifies that each extracted `pwsh` reports the
+  requested version and records it in the job summary.
 - `tests/Test-PwshFfiPackage.ps1` records the payload's `$PSVersionTable`
   version, and cross-checks it against the `PowerShellFileVersion` that
   `PowerShellRuntime.Diagnostics` reports through the packaged consumer. The
@@ -2941,5 +2944,5 @@ instead of asserting a hardcoded one:
   reports `7.4.17.500`), so the check is a prefix match and fails if the
   diagnostics report a different patch than the payload under test.
 
-A release note or CI run therefore states which PowerShell build the SDK was
+A release note or CI run therefore states which PowerShell builds the SDK was
 qualified against; it never claims a patch that was not exercised.

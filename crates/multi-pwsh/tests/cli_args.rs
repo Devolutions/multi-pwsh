@@ -293,9 +293,7 @@ fn run_pwsh(script: &str) -> Output {
 }
 
 fn discover_pwsh_install() -> (String, PathBuf) {
-    let output = run_pwsh(
-        "$exe = (Get-Command pwsh).Source; Write-Output \"$($PSVersionTable.PSVersion.ToString())|$(Split-Path -Parent $exe)\"",
-    );
+    let output = run_pwsh("Write-Output \"$($PSVersionTable.PSVersion.ToString())|$PSHOME\"");
     assert!(
         output.status.success(),
         "failed to discover pwsh install: {}",

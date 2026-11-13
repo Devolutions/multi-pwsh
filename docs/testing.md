@@ -66,14 +66,16 @@ The smoke harness creates a temporary SDK-style sample project, restores `Devolu
 ## In-process FFI SDK package tests
 
 Pack the SDK and run the self-contained Win-x64 NativeAOT package harness
-against a real PowerShell 7.4 payload root (the directory holding `pwsh.dll`
-and `pwsh.runtimeconfig.json`):
+against real PowerShell 7.4 and 7.7 payload roots (the directories holding
+`pwsh.dll` and `pwsh.runtimeconfig.json`):
 
 ```powershell
 dotnet pack dotnet\sdk-ffi\Devolutions.MultiPwsh.Sdk.csproj -c Release -o artifacts\sdk-nuget
-pwsh -NoLogo -NoProfile -File .\tests\Test-PwshFfiPackage.ps1 `
-    -PackageSource artifacts\sdk-nuget `
-    -PowerShellPayloadDirectory <payload-root>
+foreach ($payloadRoot in @('<7.4-payload-root>', '<7.7-payload-root>')) {
+    pwsh -NoLogo -NoProfile -File .\tests\Test-PwshFfiPackage.ps1 `
+        -PackageSource artifacts\sdk-nuget `
+        -PowerShellPayloadDirectory $payloadRoot
+}
 ```
 
 The harness restores the inspected local `.nupkg` into an isolated NuGet cache,
@@ -81,6 +83,9 @@ verifies the restored package against its SHA-512, publishes a NativeAOT
 consumer, and exercises the SDK surface end to end. It prints the qualified
 PowerShell version and cross-checks it against the `PowerShellFileVersion`
 reported by `PowerShellRuntime.Diagnostics`.
+
+Other PowerShell lines require the explicit `-AllowPowerShellVersionMismatch`
+opt-in and are not covered by this qualification.
 
 The harness normally requires the package version to match the crate version.
 For an explicitly named local preview built with a package-version override,

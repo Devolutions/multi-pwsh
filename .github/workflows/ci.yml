@@ -69,7 +69,7 @@ jobs:
         os:
           - ubuntu-latest
           - windows-latest
-          - macos-14
+          - macos-15
 
     steps:
       - name: Checkout
@@ -141,6 +141,7 @@ jobs:
           multi-pwsh install lts
           multi-pwsh install 7.4
           multi-pwsh install 7.5
+          multi-pwsh install 7.7
 
       - name: Verify PowerShell aliases
         shell: pwsh
@@ -155,6 +156,11 @@ jobs:
           Write-Host "pwsh-lts -> $ltsVersion"
           pwsh-7.4 -NoLogo -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'
           pwsh-7.5 -NoLogo -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'
+          $version77 = & pwsh-7.7 -NoLogo -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'
+          if ($LASTEXITCODE -ne 0 -or $version77 -notmatch '^7\.7\.\d+$') {
+            throw "pwsh-7.7 did not resolve to a released PowerShell 7.7 payload: $version77"
+          }
+          Write-Host "pwsh-7.7 -> $version77"
 
       - name: Configure static MSVC runtime
         if: matrix.os == 'windows-latest'
@@ -168,9 +174,15 @@ jobs:
       - name: Run Rust tests
         run: cargo test --all-targets -- --test-threads=1
 
-      - name: Run multi-pwsh venv integration tests
+      - name: Run multi-pwsh venv integration tests (PowerShell 7.7)
         shell: pwsh
-        run: cargo test -p multi-pwsh --test cli_args venv -- --test-threads=1
+        run: |
+          $payloadDirectory = & pwsh-7.7 -NoLogo -NoProfile -Command '$PSHOME'
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($payloadDirectory)) {
+            throw 'Could not resolve the PowerShell 7.7 payload directory.'
+          }
+          $env:PATH = "$payloadDirectory$([System.IO.Path]::PathSeparator)$env:PATH"
+          cargo test -p multi-pwsh --test cli_args venv -- --test-threads=1
 
       - name: Build .NET project
         shell: pwsh
@@ -293,6 +305,12 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: ./scripts/Install-PowerShell74ForCi.ps1
 
+      - name: Install PowerShell 7.7 payload
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./scripts/Install-PowerShell74ForCi.ps1 -VersionLine '7.7'
+
       - name: Install Rust toolchain
         shell: pwsh
         run: |
@@ -303,8 +321,12 @@ jobs:
         shell: pwsh
         run: |
           dotnet build dotnet/bindings/Devolutions.PowerShell.SDK.Bindings.csproj -c Release -p:PwshExePath="$env:PwshExePath"
-          $env:PWSH_FFI_PAYLOAD = Split-Path -Parent $env:PwshExePath
-          cargo test -p pwsh-sdk-ffi -- --ignored --test-threads=1
+          if ($LASTEXITCODE -ne 0) { throw 'The PowerShell bindings build failed.' }
+          foreach ($payloadExe in @($env:PwshExePath, $env:Pwsh77ExePath)) {
+            $env:PWSH_FFI_PAYLOAD = Split-Path -Parent $payloadExe
+            cargo test -p pwsh-sdk-ffi -- --ignored --test-threads=1
+            if ($LASTEXITCODE -ne 0) { throw "FFI lifecycle tests failed for $env:PWSH_FFI_PAYLOAD." }
+          }
 
       - name: Run PATH-resolved NativeAOT SDK sample
         shell: pwsh
@@ -354,6 +376,20 @@ jobs:
             '--expect-bridge-setup-failure-cleans-broker'
           if ($LASTEXITCODE -ne 0) { throw 'The bridge setup failure cleanup sample failed.' }
 
+          $payload77Directory = Split-Path -Parent $env:Pwsh77ExePath
+          $env:PATH = "$payload77Directory$([System.IO.Path]::PathSeparator)$env:PATH"
+          $sample77Output = & dotnet/nativeaot-sample/bin/Release/net10.0/win-x64/publish/NativeAotFfiSample.exe
+          $sample77Output | ForEach-Object { Write-Host $_ }
+          if ($LASTEXITCODE -ne 0) { throw "The PowerShell 7.7 NativeAOT SDK sample failed with exit code $LASTEXITCODE." }
+          foreach ($expected in @(
+            'NativeAOT duplex broker channel: Success',
+            'NativeAOT generated bridge attachment: Success',
+            'NativeAOT observed presentation: Success')) {
+            if (-not ($sample77Output | Where-Object { $_ -eq $expected })) {
+              throw "The PowerShell 7.7 NativeAOT SDK sample did not report '$expected'."
+            }
+          }
+
       - name: Dry-run pack NativeAOT SDK
         shell: pwsh
         run: |
@@ -364,13 +400,16 @@ jobs:
             -p:PackageVersion="$multiPwshVersion" `
             -o artifacts/sdk-nuget
 
-      - name: Run isolated NativeAOT SDK package consumer
+      - name: Run isolated NativeAOT SDK package consumers
         shell: pwsh
         run: |
-          $payloadDirectory = Split-Path -Parent $env:PwshExePath
-          pwsh -NoLogo -NoProfile -File (Resolve-Path 'tests/Test-PwshFfiPackage.ps1') `
-             -PackageSource (Resolve-Path 'artifacts/sdk-nuget') `
-             -PowerShellPayloadDirectory $payloadDirectory
+          foreach ($payloadExe in @($env:PwshExePath, $env:Pwsh77ExePath)) {
+            $payloadDirectory = Split-Path -Parent $payloadExe
+            pwsh -NoLogo -NoProfile -File (Resolve-Path 'tests/Test-PwshFfiPackage.ps1') `
+              -PackageSource (Resolve-Path 'artifacts/sdk-nuget') `
+              -PowerShellPayloadDirectory $payloadDirectory
+            if ($LASTEXITCODE -ne 0) { throw "The SDK package consumer failed for $payloadDirectory." }
+          }
 
   sdk-native-asset:
     name: SDK native asset smoke (${{ matrix.runtime_id }})
@@ -392,7 +431,7 @@ jobs:
             runtime_id: osx-x64
             native_file: libmulti_pwsh_sdk.dylib
             packaged_file: libmulti-pwsh-sdk.dylib
-          - os: macos-14
+          - os: macos-15
             runtime_id: osx-arm64
             native_file: libmulti_pwsh_sdk.dylib
             packaged_file: libmulti-pwsh-sdk.dylib

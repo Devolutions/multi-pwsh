@@ -14,6 +14,26 @@ const MODULE_VENV_PATH_ENV_VAR: &str = "PSMODULE_VENV_PATH";
 const LOG_PATH_ENV_VAR: &str = "PWSH_STARTUP_HOOK_LOG_PATH";
 const STRATEGY_ENV_VAR: &str = "PWSH_STARTUP_HOOK_STRATEGY";
 
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+/// # Safety
+/// `target` must point to a writable JIT mapping, and `bytes` must point to
+/// `length` readable bytes that do not overlap the target.
+unsafe extern "C" fn patch_macos_jit(target: *mut libc::c_void, bytes: *const libc::c_void, length: usize) {
+    extern "C" {
+        fn pthread_jit_write_protect_np(enabled: libc::c_int);
+        fn sys_icache_invalidate(start: *mut libc::c_void, length: libc::size_t);
+    }
+
+    // SAFETY: The managed hook supplies valid, non-overlapping patch buffers.
+    // The write-protection transition and copy must both execute in native code.
+    unsafe {
+        pthread_jit_write_protect_np(0);
+        libc::memcpy(target, bytes, length);
+        pthread_jit_write_protect_np(1);
+        sys_icache_invalidate(target, length);
+    }
+}
+
 fn take_env_var(name: &str) -> Option<std::ffi::OsString> {
     let value = std::env::var_os(name);
     if value.is_some() {
@@ -70,6 +90,12 @@ pub(crate) fn configure_startup_hooks_for_context<I>(
             let startup_hooks_pd = PdCString::from_os_str(STARTUP_HOOK_ASSEMBLY_NAME)?;
             context.set_runtime_property_value(pdcstr!("STARTUP_HOOKS"), &startup_hooks_pd)?;
         }
+    }
+
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    if module_venv_path.is_some() {
+        let address = PdCString::from_os_str(format!("{:x}", patch_macos_jit as *const () as usize))?;
+        context.set_runtime_property_value(pdcstr!("PWSH_HOST_NATIVE_JIT_PATCH"), &address)?;
     }
 
     if let Some(module_venv_path) = module_venv_path {
@@ -140,4 +166,41 @@ where
     configure_startup_hooks_for_context(&context)?;
 
     Ok(context.run_app())
+}
+
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
+mod tests {
+    use super::patch_macos_jit;
+
+    #[test]
+    fn macos_jit_patch_rewrites_executable_code() {
+        let initial: [u32; 2] = [0x528000e0, 0xd65f03c0];
+        let replacement: [u32; 2] = [0x52800540, 0xd65f03c0];
+        let length = std::mem::size_of_val(&initial);
+
+        // SAFETY: The mapping is a private JIT page, and both patches are valid
+        // arm64 functions with the declared signature.
+        unsafe {
+            let memory = libc::mmap(
+                std::ptr::null_mut(),
+                length,
+                libc::PROT_READ | libc::PROT_WRITE | libc::PROT_EXEC,
+                libc::MAP_PRIVATE | libc::MAP_ANON | libc::MAP_JIT,
+                -1,
+                0,
+            );
+            assert_ne!(memory, libc::MAP_FAILED, "failed to allocate a JIT page");
+
+            patch_macos_jit(memory, initial.as_ptr().cast(), length);
+            let execute: unsafe extern "C" fn() -> u32 = std::mem::transmute(memory);
+            let first = execute();
+
+            patch_macos_jit(memory, replacement.as_ptr().cast(), length);
+            let second = execute();
+            let unmapped = libc::munmap(memory, length);
+
+            assert_eq!(unmapped, 0, "failed to release the JIT page");
+            assert_eq!((first, second), (7, 42), "JIT patch did not update executable code");
+        }
+    }
 }

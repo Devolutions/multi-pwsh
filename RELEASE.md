@@ -36,16 +36,18 @@ package harness described in [testing](docs/testing.md#in-process-ffi-sdk-packag
 ```powershell
 pwsh -NoLogo -NoProfile -File .\tests\Verify-PwshFfiApiBaseline.ps1
 dotnet pack dotnet\sdk-ffi\Devolutions.MultiPwsh.Sdk.csproj -c Release -o artifacts\sdk-nuget
-pwsh -NoLogo -NoProfile -File .\tests\Test-PwshFfiPackage.ps1 `
-    -PackageSource artifacts\sdk-nuget `
-    -PowerShellPayloadDirectory <payload-root>
+foreach ($payloadRoot in @('<7.4-payload-root>', '<7.7-payload-root>')) {
+    pwsh -NoLogo -NoProfile -File .\tests\Test-PwshFfiPackage.ps1 `
+        -PackageSource artifacts\sdk-nuget `
+        -PowerShellPayloadDirectory $payloadRoot
+}
 ```
 
-The SDK is qualified against the **latest released PowerShell 7.4.x**, not a
-fixed patch. Record the exact version the harness prints
-(`Qualified PowerShell payload: <version>`) in the release notes; CI also
-exports it as `PwshQualifiedVersion` and writes it to the job summary. Do not
-state a patch that was not exercised.
+The SDK is qualified on Windows x64 against the **latest released PowerShell
+7.4.x and 7.7.x**, not fixed patches. Record both exact versions the harness
+prints (`Qualified PowerShell payload: <version>`) in the release notes; CI
+exports them as `PwshQualifiedVersion` and `Pwsh77QualifiedVersion` and writes
+them to the job summary. Do not state a patch that was not exercised.
 
 Live-object contract packs are a coordinated breaking release: an interface
 identifier, version, direction, operation shape, or pack ABI change requires

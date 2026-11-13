@@ -183,12 +183,14 @@ multi-pwsh list --available --include-prerelease
 
 ```powershell
 multi-pwsh install 7.4.x
+multi-pwsh install 7.7
 multi-pwsh install 7.6 --include-prerelease
 multi-pwsh install 7.6-preview6
 multi-pwsh install 7.6-rc1
 multi-pwsh install 7.6.0-rc.1
 multi-pwsh update 7.4
 multi-pwsh update 7.5
+multi-pwsh update 7.7
 multi-pwsh update 7.6 --include-prerelease
 multi-pwsh uninstall 7.4.13
 ```

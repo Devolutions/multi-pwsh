@@ -127,11 +127,11 @@ function Resolve-PowerShellPayloadDirectory {
     if ($LASTEXITCODE -ne 0) {
         throw "The FFI package smoke could not start the PowerShell payload at '$resolved'."
     }
-    if ($version -notmatch '^7\.4\.' -and -not $AllowPowerShellVersionMismatch) {
-        throw "The FFI package smoke requires a PowerShell 7.4 payload, but '$resolved' reported '$version'."
+    if ($version -notmatch '^7\.(4|7)\.' -and -not $AllowPowerShellVersionMismatch) {
+        throw "The FFI package smoke requires a PowerShell 7.4 or 7.7 payload, but '$resolved' reported '$version'."
     }
-    if ($version -notmatch '^7\.4\.') {
-        Write-Warning "Testing an explicit non-7.4 PowerShell payload: $version."
+    if ($version -notmatch '^7\.(4|7)\.') {
+        Write-Warning "Testing an explicit PowerShell payload outside the qualified 7.4 and 7.7 lines: $version."
     }
 
     $script:QualifiedPowerShellVersion = $version.Trim()
