@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Threading;
 
 public static partial class StartupHook
 {
@@ -38,6 +39,12 @@ public static partial class StartupHook
 
         if (OperatingSystem.IsMacOS() && architecture == Architecture.Arm64)
         {
+            if (Environment.Version.Major >= 10)
+            {
+                RedirectMacOSArm64FixupPrecode(targetPtr, replacementPtr);
+                return;
+            }
+
             if (AppContext.GetData("PWSH_HOST_NATIVE_JIT_PATCH") is not string address
                 || !ulong.TryParse(address, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out ulong value)
                 || value == 0)
@@ -63,6 +70,27 @@ public static partial class StartupHook
         {
             RestoreMethodProtection(targetPtr, patchSize, oldProtect);
         }
+    }
+
+    private static unsafe void RedirectMacOSArm64FixupPrecode(IntPtr targetPtr, IntPtr replacementPtr)
+    {
+        int pageSize = Environment.SystemPageSize;
+        uint* instructions = (uint*)targetPtr;
+        uint expectedLoad = 0x5800000B | ((uint)(pageSize / 4) << 5);
+
+        // .NET 10 maps fixup-precode instructions from a read-only template;
+        // its corresponding writable target slot is one page after the entry.
+        if (pageSize <= 0 || pageSize >= 0x100000 || pageSize % 4 != 0
+            || ((nuint)targetPtr & 7) != 0
+            || instructions[0] != expectedLoad
+            || instructions[1] != 0xD61F0160
+            || instructions[2] != 0xD50339BF)
+        {
+            throw new PlatformNotSupportedException("Unsupported macOS arm64 .NET fixup precode.");
+        }
+
+        long* targetSlot = (long*)((byte*)targetPtr + pageSize);
+        Interlocked.Exchange(ref *targetSlot, replacementPtr.ToInt64());
     }
 
     private static int GetPatchSize(Architecture architecture)
