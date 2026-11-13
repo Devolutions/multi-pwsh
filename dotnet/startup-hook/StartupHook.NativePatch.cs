@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -35,28 +36,31 @@ public static partial class StartupHook
         IntPtr targetPtr = target.MethodHandle.GetFunctionPointer();
         IntPtr replacementPtr = replacement.MethodHandle.GetFunctionPointer();
 
-        MakeMethodWritable(targetPtr, patchSize, out uint oldProtect);
+        if (OperatingSystem.IsMacOS() && architecture == Architecture.Arm64)
+        {
+            if (AppContext.GetData("PWSH_HOST_NATIVE_JIT_PATCH") is not string address
+                || !ulong.TryParse(address, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out ulong value)
+                || value == 0)
+            {
+                throw new InvalidOperationException("The native macOS JIT patch helper is unavailable.");
+            }
 
-        bool jitWriteProtectionDisabled = false;
+            byte* patch = stackalloc byte[patchSize];
+            WriteJumpPatch(patch, replacementPtr, architecture);
+            var nativePatch = (delegate* unmanaged<void*, void*, nuint, void>)(nuint)value;
+            nativePatch(targetPtr.ToPointer(), patch, (nuint)patchSize);
+            return;
+        }
+
+        MakeMethodWritable(targetPtr, patchSize, out uint oldProtect);
 
         try
         {
-            if (OperatingSystem.IsMacOS() && architecture == Architecture.Arm64)
-            {
-                pthread_jit_write_protect_np(0);
-                jitWriteProtectionDisabled = true;
-            }
-
             WriteJumpPatch((byte*)targetPtr, replacementPtr, architecture);
             FlushPatchedCode(targetPtr, patchSize, architecture);
         }
         finally
         {
-            if (jitWriteProtectionDisabled)
-            {
-                pthread_jit_write_protect_np(1);
-            }
-
             RestoreMethodProtection(targetPtr, patchSize, oldProtect);
         }
     }
@@ -241,9 +245,6 @@ public static partial class StartupHook
 
     [DllImport("libc", SetLastError = true)]
     private static extern int mprotect(IntPtr address, nuint size, int protection);
-
-    [DllImport(LibSystem)]
-    private static extern void pthread_jit_write_protect_np(int enabled);
 
     [DllImport(LibSystem)]
     private static extern void sys_icache_invalidate(IntPtr start, nuint length);
