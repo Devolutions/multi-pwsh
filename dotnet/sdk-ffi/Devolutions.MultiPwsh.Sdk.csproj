@@ -14,8 +14,7 @@
     <PackageLicenseExpression>MIT OR Apache-2.0</PackageLicenseExpression>
     <PackageReleaseNotes>Native deployment is opt-in. PowerShell is not included; activation selects pwsh from PATH by default or accepts an explicit payload directory. ABI v2 adds explicit lease-only SecureString and PSCredential parameter adapters, typed secret results, bounded credential-result sinks, safe PowerShellSecret transfer APIs, bounded module declarations, and payload-owned PSSession helpers. Windows x64 is the current end-to-end validated runtime.</PackageReleaseNotes>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
-    <EnableAotAnalyzer>true</EnableAotAnalyzer>
+    <IsAotCompatible>true</IsAotCompatible>
     <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
