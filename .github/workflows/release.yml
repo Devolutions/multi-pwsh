@@ -608,6 +608,12 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: ./scripts/Install-PowerShell74ForCi.ps1
 
+      - name: Install PowerShell 7.7 payload
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./scripts/Install-PowerShell74ForCi.ps1 -VersionLine '7.7'
+
       - name: Download signed Windows x64 SDK native library
         uses: actions/download-artifact@v7
         with:
@@ -663,11 +669,13 @@ jobs:
             -o artifacts\sdk-nuget
           if ($LASTEXITCODE -ne 0) { throw 'SDK package creation failed.' }
 
-          & (Resolve-Path 'tests\Test-PwshFfiPackage.ps1') `
-            -PackageSource (Resolve-Path 'artifacts\sdk-nuget') `
-            -PackageVersion "$env:PACKAGE_VERSION" `
-            -PowerShellPayloadDirectory (Split-Path -Parent $env:PwshExePath) `
-            -ExpectedRuntimeIdentifiers @('win-x64', 'win-arm64', 'linux-x64', 'linux-arm64', 'linux-arm', 'osx-x64', 'osx-arm64')
+          foreach ($payloadExe in @($env:PwshExePath, $env:Pwsh77ExePath)) {
+            & (Resolve-Path 'tests\Test-PwshFfiPackage.ps1') `
+              -PackageSource (Resolve-Path 'artifacts\sdk-nuget') `
+              -PackageVersion "$env:PACKAGE_VERSION" `
+              -PowerShellPayloadDirectory (Split-Path -Parent $payloadExe) `
+              -ExpectedRuntimeIdentifiers @('win-x64', 'win-arm64', 'linux-x64', 'linux-arm64', 'linux-arm', 'osx-x64', 'osx-arm64')
+          }
 
       - name: Upload SDK NuGet package artifact
         uses: actions/upload-artifact@v6

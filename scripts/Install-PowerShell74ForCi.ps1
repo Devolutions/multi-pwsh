@@ -1,5 +1,8 @@
 [CmdletBinding()]
-param()
+param(
+    [ValidateSet('7.4', '7.7')]
+    [string]$VersionLine = '7.4'
+)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
@@ -16,19 +19,22 @@ function Get-GitHubHeaders {
     $headers
 }
 
-function Get-PowerShell74Release {
+function Get-PowerShellRelease {
+    param([Parameter(Mandatory = $true)][string]$Line)
+
     $headers = Get-GitHubHeaders
     $releases = Invoke-RestMethod `
         -Headers $headers `
         -Uri "https://api.github.com/repos/PowerShell/PowerShell/releases?per_page=100"
 
+    $tagPattern = "^v$([regex]::Escape($Line))\.\d+$"
     $release = $releases |
-        Where-Object { -not $_.prerelease -and $_.tag_name -match "^v7\.4\.\d+$" } |
+        Where-Object { -not $_.prerelease -and $_.tag_name -match $tagPattern } |
         Sort-Object { [version]$_.tag_name.TrimStart("v") } -Descending |
         Select-Object -First 1
 
     if ($null -eq $release) {
-        throw "Unable to find a PowerShell 7.4.x release."
+        throw "Unable to find a PowerShell $Line.x release."
     }
 
     $release
@@ -67,13 +73,16 @@ function New-PwshShim {
         [string]$Version,
 
         [Parameter(Mandatory = $true)]
+        [string]$Line,
+
+        [Parameter(Mandatory = $true)]
         [string]$TempRoot
     )
 
-    $shimDir = Join-Path $TempRoot "pwsh-7.4-shims"
+    $shimDir = Join-Path $TempRoot "pwsh-$Line-shims"
     New-Item -Path $shimDir -ItemType Directory -Force | Out-Null
 
-    $minorShimName = if ($IsWindows) { "pwsh-7.4.cmd" } else { "pwsh-7.4" }
+    $minorShimName = if ($IsWindows) { "pwsh-$Line.cmd" } else { "pwsh-$Line" }
     $patchShimName = if ($IsWindows) { "pwsh-$Version.cmd" } else { "pwsh-$Version" }
 
     foreach ($shimName in @($minorShimName, $patchShimName)) {
@@ -106,7 +115,7 @@ else {
     [IO.Path]::GetTempPath()
 }
 
-$release = Get-PowerShell74Release
+$release = Get-PowerShellRelease -Line $VersionLine
 $version = $release.tag_name.TrimStart("v")
 $assetName = Get-AssetName -Version $version
 $asset = $release.assets | Where-Object { $_.name -eq $assetName } | Select-Object -First 1
@@ -145,22 +154,23 @@ if (-not $IsWindows) {
     chmod +x $pwshExe
 }
 
-New-PwshShim -PwshExe $pwshExe -Version $version -TempRoot $tempRoot
+New-PwshShim -PwshExe $pwshExe -Version $version -Line $VersionLine -TempRoot $tempRoot
 
 $reportedVersion = (& $pwshExe -NoLogo -NoProfile -Command '$PSVersionTable.PSVersion.ToString()').Trim()
 if ($reportedVersion -ne $version) {
     throw "The installed PowerShell reported version '$reportedVersion' but release '$version' was requested."
 }
 
+$environmentPrefix = if ($VersionLine -eq '7.4') { 'Pwsh' } else { 'Pwsh77' }
 if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_ENV)) {
-    "PwshExePath=$pwshExe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-    "PwshQualifiedVersion=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+    "$($environmentPrefix)ExePath=$pwshExe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+    "$($environmentPrefix)QualifiedVersion=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 }
 
 if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_STEP_SUMMARY)) {
-    "Qualified against PowerShell $version (latest released 7.4.x) at ``$pwshExe``." |
+    "Installed PowerShell $version (latest released $VersionLine.x) at ``$pwshExe``." |
         Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
 }
 
-Write-Host "Installed PowerShell $version for binding discovery: $pwshExe"
+Write-Host "Installed PowerShell $version for CI: $pwshExe"
 Write-Host "Qualified PowerShell version: $reportedVersion"
