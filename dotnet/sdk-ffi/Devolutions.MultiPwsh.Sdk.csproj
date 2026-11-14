@@ -3,7 +3,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <AssemblyName>Devolutions.MultiPwsh.Sdk</AssemblyName>
     <PackageId>Devolutions.MultiPwsh.Sdk</PackageId>
-    <PackageVersion Condition="'$(PackageVersion)' == ''">0.18.0</PackageVersion>
+    <PackageVersion Condition="'$(PackageVersion)' == ''">0.19.0</PackageVersion>
     <Authors>Devolutions</Authors>
     <Description>Experimental dynamically selected PowerShell payload facade for the in-process NativeAOT Devolutions Rust FFI.</Description>
     <PackageReadmeFile>README.md</PackageReadmeFile>
