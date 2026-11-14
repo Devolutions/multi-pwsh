@@ -6,7 +6,7 @@ The normal CLI payload is copied under `runtimes/<rid>/native/` for build and pu
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="Devolutions.MultiPwsh.Cli" Version="0.18.0" PrivateAssets="all" />
+  <PackageReference Include="Devolutions.MultiPwsh.Cli" Version="0.19.0" PrivateAssets="all" />
 </ItemGroup>
 
 <PropertyGroup>
@@ -28,7 +28,7 @@ AppHost mode is inert by default; set `MultiPwshAppHostEnabled=true` to copy the
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="Devolutions.MultiPwsh.Cli" Version="0.18.0" PrivateAssets="all" />
+  <PackageReference Include="Devolutions.MultiPwsh.Cli" Version="0.19.0" PrivateAssets="all" />
 </ItemGroup>
 
 <PropertyGroup>

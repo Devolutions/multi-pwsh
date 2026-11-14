@@ -16,14 +16,14 @@ curl -fsSL https://github.com/Devolutions/multi-pwsh/releases/latest/download/in
 irm https://github.com/Devolutions/multi-pwsh/releases/latest/download/install-multi-pwsh.ps1 | iex
 ```
 
-Install a specific tag (example `v0.18.0`):
+Install a specific tag (example `v0.19.0`):
 
 ```bash
-curl -fsSL https://github.com/Devolutions/multi-pwsh/releases/download/v0.18.0/install-multi-pwsh.sh | bash -s -- v0.18.0
+curl -fsSL https://github.com/Devolutions/multi-pwsh/releases/download/v0.19.0/install-multi-pwsh.sh | bash -s -- v0.19.0
 ```
 
 ```powershell
-& ([scriptblock]::Create((irm https://github.com/Devolutions/multi-pwsh/releases/download/v0.18.0/install-multi-pwsh.ps1))) -Version v0.18.0
+& ([scriptblock]::Create((irm https://github.com/Devolutions/multi-pwsh/releases/download/v0.19.0/install-multi-pwsh.ps1))) -Version v0.19.0
 ```
 
 Uninstall bootstrap scripts:
@@ -291,7 +291,7 @@ Package authors can consume the launchers privately and map them into their own 
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="Devolutions.MultiPwsh.Cli" Version="0.18.0" PrivateAssets="all" />
+  <PackageReference Include="Devolutions.MultiPwsh.Cli" Version="0.19.0" PrivateAssets="all" />
 </ItemGroup>
 
 <PropertyGroup>
@@ -313,7 +313,7 @@ For a simple single-RID project, AppHost mode can copy the selected binary direc
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="Devolutions.MultiPwsh.Cli" Version="0.18.0" PrivateAssets="all" />
+  <PackageReference Include="Devolutions.MultiPwsh.Cli" Version="0.19.0" PrivateAssets="all" />
 </ItemGroup>
 
 <PropertyGroup>
